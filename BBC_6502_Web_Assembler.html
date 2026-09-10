@@ -135,6 +135,7 @@ message:
     <p><b>Address-size control:</b> a literal written with four or more hex digits, e.g. <code>LDA &00F0</code>, forces absolute addressing where available. You can also write <code>LDA.ABS symbol</code> or <code>LDA.ZP symbol</code>. This matters when reproducing exact binaries.</p>
     <p><b>Undocumented NMOS opcodes:</b> common forms are supported, including <code>SLO RLA SRE RRA SAX LAX DCP ISC ANC ALR ARR AXS LAS AHX SHY SHX TAS</code>. The assembler's <code>NOP abs,X</code> form uses opcode <code>&DC</code>; exact alternative illegal encodings can always be emitted with <code>EQUB</code>. Disable undocumented opcodes using the toolbar checkbox.</p>
     <p><b>Origin:</b> if the source contains no <code>ORG</code>, the toolbar origin is used. This makes a source file relocatable without embedding an assembly address. An explicit <code>ORG</code> in the source takes precedence. A relocatable source may optionally contain a comment such as <code>; @default-origin &amp;1900</code>; when that file is loaded the value is copied into the Origin field, but it remains user-editable and is not an assembly directive.</p>
+    <p><b>Loader BASIC:</b> source comments of the form <code>; @basic ENVELOPE1,1,0,0,0,1,1,1,100,-10,0,-10,100,0</code> are ignored by 6502 assembly but are copied, in source/INCLUDE order, into the tokenised BBC BASIC loader made by <b>Save boot disk…</b>. One <code>@basic</code> line becomes one BASIC line and runs after the loader selects MODE 7 but before relocation. Star commands such as <code>; @basic *FX200,3</code> are also accepted. These directives never alter the machine-code binary.</p>
     <p><b>Multiple ORGs:</b> emitted ranges are shown as separate segments. “Save binary” creates one flat file from the lowest to highest emitted address and fills gaps with the selected fill byte. Each individual segment can also be downloaded from the Segments tab.</p>
   </div>
 </dialog>
@@ -150,6 +151,8 @@ message:
       <div class="hint">Taken from the lowest assembled address. Reassemble at a different toolbar origin to change it.</div>
       <label for="entryPoint">Entry point</label><input id="entryPoint" type="text" value="start" placeholder="symbol or address">
       <div class="hint">May be a source symbol or a hexadecimal/decimal address.</div>
+      <label>Source BASIC setup</label><input id="bootBasicCount" type="text" readonly value="0 @basic lines">
+      <div class="hint">Executable setup statements taken from <code>; @basic ...</code> comments in the assembled source and its INCLUDE files. They run before relocation.</div>
     </div>
     <p id="bootWarning" class="warn"></p>
   </div>
@@ -673,7 +676,7 @@ message:
     OPCODES,
     MODES,
     UNDOCUMENTED,
-    version: '1.3.0'
+    version: '1.4.0'
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -832,6 +835,42 @@ message:
         .toUpperCase()
         .padStart(4, '0');
     }
+  }
+
+  // Loader-only BBC BASIC statements can be kept alongside assembly source as
+  // comments. They do not emit 6502 bytes and therefore never affect the
+  // assembled binary:
+  //
+  //     ; @basic ENVELOPE1,1,5,-7,8,3,4,5,0,0,0,-6,126,0
+  //     ; @basic *FX200,3
+  //
+  // The assembler's INCLUDE expansion is used as the source of these lines, so
+  // @basic statements in included files are collected in the same order in
+  // which the assembler sees them. They are used only by "Save boot disk...".
+  function collectLoaderBasicStatements(expandedLines) {
+    const statements = [];
+
+    for (const info of expandedLines || []) {
+      const match = String(info.text || '').match(/^\s*;\s*@basic(?:\s+(.*))?$/i);
+
+      if (!match) {
+        continue;
+      }
+
+      const command = String(match[1] || '').trim();
+
+      if (!command) {
+        throw new Error(`${info.file}:${info.line}: @basic requires a BBC BASIC statement.`);
+      }
+
+      statements.push({
+        command,
+        file: info.file,
+        line: info.line
+      });
+    }
+
+    return statements;
   }
 
   function resolveEntryPoint(text, result) {
@@ -1045,6 +1084,15 @@ message:
     lastResult = assembler.assemble(currentFile, files);
     const elapsedMs = performance.now() - startTime;
 
+    if (lastResult.success) {
+      try {
+        lastResult.basicStatements = collectLoaderBasicStatements(assembler.expanded);
+      } catch (error) {
+        lastResult.basicStatements = [];
+        lastResult.basicMetadataError = error.message;
+      }
+    }
+
     if (lastResult.success && lastResult.binary.length) {
       lastResult.sha256 = await sha256(lastResult.binary);
     }
@@ -1115,6 +1163,7 @@ message:
           <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
           <div class="key">Segments</div><div>${result.segments.length}</div>
           <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
+          <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
           <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
           ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
         </div>`;
@@ -1282,12 +1331,69 @@ message:
     READ: 0xF3
   });
 
+  // BBC BASIC statement tokens used by source-level ; @basic metadata.
+  // @basic is intended for setup statements which must run before the machine
+  // code starts (ENVELOPE definitions are a typical example). The map covers
+  // the ordinary executable statement keywords; the supplied remainder of the
+  // statement stays byte-for-byte ASCII. A leading '*' command is stored as
+  // ASCII exactly as BBC BASIC does for star commands in a program line.
+  const BASIC_LOADER_STATEMENT_TOKENS = Object.freeze({
+    SOUND: 0xD4,
+    CALL: 0xD6,
+    CHAIN: 0xD7,
+    CLEAR: 0xD8,
+    CLOSE: 0xD9,
+    CLG: 0xDA,
+    CLS: 0xDB,
+    DATA: 0xDC,
+    DEF: 0xDD,
+    DIM: 0xDE,
+    DRAW: 0xDF,
+    END: 0xE0,
+    ENDPROC: 0xE1,
+    ENVELOPE: 0xE2,
+    FOR: 0xE3,
+    GOSUB: 0xE4,
+    GOTO: 0xE5,
+    GCOL: 0xE6,
+    IF: 0xE7,
+    INPUT: 0xE8,
+    LET: 0xE9,
+    LOCAL: 0xEA,
+    MODE: 0xEB,
+    MOVE: 0xEC,
+    NEXT: 0xED,
+    ON: 0xEE,
+    VDU: 0xEF,
+    PLOT: 0xF0,
+    PRINT: 0xF1,
+    PROC: 0xF2,
+    READ: 0xF3,
+    REM: 0xF4,
+    REPEAT: 0xF5,
+    REPORT: 0xF6,
+    RESTORE: 0xF7,
+    RETURN: 0xF8,
+    RUN: 0xF9,
+    STOP: 0xFA,
+    COLOUR: 0xFB,
+    COLOR: 0xFB,
+    TRACE: 0xFC,
+    UNTIL: 0xFD,
+    WIDTH: 0xFE,
+    OSCLI: 0xFF
+  });
+
   function asciiBytes(text) {
     return Array.from(String(text), (character) => character.charCodeAt(0) & 0xFF);
   }
 
   function basicLine(number, body) {
     const length = body.length + 4;
+
+    if (number < 0 || number > 32767) {
+      throw new Error(`Generated BASIC line number ${number} is outside 0-32767.`);
+    }
 
     if (length > 255) {
       throw new Error(`Generated BASIC line ${number} is too long.`);
@@ -1302,7 +1408,103 @@ message:
     ];
   }
 
-  function makeBasicLoader(destination, entryPoint, binaryLength) {
+  // Split ':'-chained setup statements without splitting colons inside quoted
+  // strings. Each resulting statement is independently tokenised at its first
+  // keyword. This deliberately targets executable loader setup, not arbitrary
+  // full-program BBC BASIC source with line-number references.
+  function splitBasicLoaderStatements(text) {
+    const parts = [];
+    let current = '';
+    let quoted = false;
+
+    for (let index = 0; index < text.length; index++) {
+      const character = text[index];
+
+      if (character === '"') {
+        // BBC BASIC escapes a quote inside a string as two quote characters.
+        if (quoted && text[index + 1] === '"') {
+          current += '""';
+          index++;
+          continue;
+        }
+
+        quoted = !quoted;
+        current += character;
+        continue;
+      }
+
+      if (character === ':' && !quoted) {
+        parts.push(current);
+        current = '';
+        continue;
+      }
+
+      current += character;
+    }
+
+    if (quoted) {
+      throw new Error('Unterminated string in @basic statement.');
+    }
+
+    parts.push(current);
+    return parts;
+  }
+
+  function tokeniseBasicLoaderSingleStatement(text) {
+    const statement = String(text || '').trim();
+
+    if (!statement) {
+      throw new Error('Empty statement in @basic metadata.');
+    }
+
+    if (statement.startsWith('*')) {
+      return asciiBytes(statement);
+    }
+
+    // A plain variable/indirection assignment is valid BBC BASIC without LET.
+    // It can stay ASCII because variable names and operators are not tokens.
+    if (/^(?:[A-Za-z][A-Za-z0-9_$%]*|[?!$][A-Za-z0-9_$%()]+)\s*=/.test(statement)) {
+      return asciiBytes(statement);
+    }
+
+    const match = statement.match(/^([A-Za-z]+)(.*)$/);
+
+    if (!match) {
+      throw new Error(`Cannot tokenise @basic statement '${statement}'.`);
+    }
+
+    const keyword = match[1].toUpperCase();
+    const token = BASIC_LOADER_STATEMENT_TOKENS[keyword];
+
+    if (token === undefined) {
+      throw new Error(
+        `Unsupported @basic statement keyword '${match[1]}'. ` +
+        'Use a normal BBC BASIC statement keyword or a leading * command.'
+      );
+    }
+
+    // BBC BASIC stores the keyword as one byte. Whitespace immediately after
+    // it is optional and is omitted here; the remainder is retained exactly.
+    const remainder = match[2].replace(/^\s+/, '');
+    return [token, ...asciiBytes(remainder)];
+  }
+
+  function tokeniseBasicLoaderStatement(text) {
+    const parts = splitBasicLoaderStatements(String(text || ''));
+    const bytes = [];
+
+    for (let index = 0; index < parts.length; index++) {
+      if (index) {
+        bytes.push(':'.charCodeAt(0));
+      }
+
+      bytes.push(...tokeniseBasicLoaderSingleStatement(parts[index]));
+    }
+
+    return bytes;
+  }
+
+  function makeBasicLoader(destination, entryPoint, binaryLength, setupStatements = []) {
     const T = BASIC_TOKENS;
     const output = [0x0D];
 
@@ -1310,39 +1512,69 @@ message:
       output.push(...basicLine(number, body));
     };
 
-    // 10 MODE 7
+    // 10 MODE 7. The temporary mover lives immediately below MODE 7 screen RAM.
     addLine(10, [T.MODE, ...asciiBytes(' 7')]);
 
-    // 20 HIMEM=&7AE0
-    addLine(20, [T.HIMEM_LEFT, ...asciiBytes('=&7AE0')]);
+    // Source-supplied setup statements execute in source/INCLUDE order after
+    // MODE 7 is established and before any relocation occurs.
+    let setupLineNumber = 20;
 
-    // 30 S%=TOP:M%=&7AE0  (TOP is represented by token TO followed by 'P')
-    addLine(30, [
+    for (const item of setupStatements) {
+      try {
+        const command = typeof item === 'string' ? item : item.command;
+        addLine(setupLineNumber, tokeniseBasicLoaderStatement(command));
+      } catch (error) {
+        const where = item && typeof item === 'object' && item.file
+          ? `${item.file}:${item.line}: `
+          : '';
+        throw new Error(`${where}${error.message}`);
+      }
+
+      setupLineNumber += 10;
+    }
+
+    // Leave a visible line-number gap between user setup and generated loader.
+    // This also lets a fairly large number of @basic lines be used safely.
+    let loaderLine = Math.max(1000, Math.ceil((setupLineNumber + 100) / 100) * 100);
+
+    if (loaderLine + 3000 > 32767) {
+      throw new Error('Too many @basic lines to fit in a BBC BASIC program.');
+    }
+
+    // HIMEM=&7AE0
+    addLine(loaderLine, [T.HIMEM_LEFT, ...asciiBytes('=&7AE0')]);
+    loaderLine += 10;
+
+    // S%=TOP:M%=&7AE0  (TOP is represented by token TO followed by 'P')
+    addLine(loaderLine, [
       ...asciiBytes('S%='), T.TO, 'P'.charCodeAt(0),
       ...asciiBytes(':M%=&7AE0')
     ]);
+    loaderLine += 10;
 
-    // 40 FOR I%=0 TO 276:READ B%:M%?I%=B%:NEXT
-    addLine(40, [
+    // FOR I%=0 TO mover_length-1:READ B%:M%?I%=B%:NEXT
+    addLine(loaderLine, [
       T.FOR, ...asciiBytes(' I%=0 '), T.TO,
       ...asciiBytes(` ${MOVER_BYTES.length - 1}:`),
       T.READ, ...asciiBytes(' B%:M%?I%=B%:'), T.NEXT
     ]);
+    loaderLine += 10;
 
     // Patch the 32-bit parameter slots. The mover consumes the low 16 bits.
-    addLine(50, asciiBytes(
+    addLine(loaderLine, asciiBytes(
       `M%!${MOVER_SOURCE_OFFSET}=S%:` +
       `M%!${MOVER_DESTINATION_OFFSET}=&${destination.toString(16).toUpperCase()}:` +
       `M%!${MOVER_LENGTH_OFFSET}=&${binaryLength.toString(16).toUpperCase()}:` +
       `M%!${MOVER_ENTRY_OFFSET}=&${entryPoint.toString(16).toUpperCase()}`
     ));
+    loaderLine += 10;
 
-    // 60 CALL M% -- this intentionally never returns; the mover JMPs to the game.
-    addLine(60, [T.CALL, ...asciiBytes(' M%')]);
+    // CALL M% intentionally never returns: the mover JMPs to the program entry.
+    addLine(loaderLine, [T.CALL, ...asciiBytes(' M%')]);
 
     // DATA statements contain the mover itself. DATA's payload is deliberately
     // left as ASCII because BASIC does not tokenise the contents of DATA.
-    let lineNumber = 100;
+    let lineNumber = Math.ceil((loaderLine + 100) / 100) * 100;
     const bytesPerDataLine = 18;
 
     for (let i = 0; i < MOVER_BYTES.length; i += bytesPerDataLine) {
@@ -1406,7 +1638,7 @@ message:
       );
     }
 
-    const basic = makeBasicLoader(destination, entryPoint, result.binary.length);
+    const basic = makeBasicLoader(destination, entryPoint, result.binary.length, options.basicStatements || []);
     const program = new Uint8Array(basic.length + result.binary.length);
     program.set(basic, 0);
     program.set(result.binary, basic.length);
@@ -1499,8 +1731,18 @@ message:
     byId('programName').value = stem(currentFile).replace(/[^A-Za-z0-9!_-]/g, '').toUpperCase().slice(0, 7) || 'PROGRAM';
     byId('bootOrigin').value = hex4(lastResult.origin);
     byId('entryPoint').value = suggestedEntrySymbol(lastResult);
-    byId('bootWarning').textContent =
-      `The temporary mover occupies ${hex4(MOVER_ADDRESS)}-${hex4(MOVER_END)}. The compiled destination must not overlap it.`;
+
+    const setupStatements = lastResult.basicStatements || [];
+    byId('bootBasicCount').value =
+      `${setupStatements.length} @basic line${setupStatements.length === 1 ? '' : 's'}`;
+
+    if (lastResult.basicMetadataError) {
+      byId('bootWarning').textContent = lastResult.basicMetadataError;
+    } else {
+      byId('bootWarning').textContent =
+        `The temporary mover occupies ${hex4(MOVER_ADDRESS)}-${hex4(MOVER_END)}. The compiled destination must not overlap it.`;
+    }
+
     byId('bootDialog').showModal();
   }
 
@@ -1513,8 +1755,17 @@ message:
         throw new Error('Enter a valid DFS program filename.');
       }
 
+      if (lastResult.basicMetadataError) {
+        throw new Error(lastResult.basicMetadataError);
+      }
+
       const entryPoint = resolveEntryPoint(byId('entryPoint').value, lastResult);
-      const disk = buildDfsSsd(lastResult, {diskTitle, programName, entryPoint});
+      const disk = buildDfsSsd(lastResult, {
+        diskTitle,
+        programName,
+        entryPoint,
+        basicStatements: lastResult.basicStatements || []
+      });
 
       downloadBlob(
         disk.image,
@@ -1673,6 +1924,15 @@ message:
     if (event.dataTransfer.files.length) {
       loadFileList([...event.dataTransfer.files]);
     }
+  });
+
+  // Expose the pure loader helpers for regression tests and advanced users.
+  // They are part of the single HTML file and do not require any external code.
+  window.BBC6502BootTools = Object.freeze({
+    collectLoaderBasicStatements,
+    tokeniseBasicLoaderStatement,
+    makeBasicLoader,
+    buildDfsSsd
   });
 
   byId('version').textContent = 'assembler ' + version;
