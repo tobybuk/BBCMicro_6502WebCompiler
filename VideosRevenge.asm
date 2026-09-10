@@ -4,6 +4,25 @@
 ; ------------------
 ; @default-origin &09C0
 ;
+; BBC BASIC loader setup
+; ----------------------
+; These @basic lines are metadata for the web assembler's boot-disk generator.
+; They are ignored by 6502 assembly, so they do not alter the machine-code
+; binary. When an SSD is created, they are inserted into the generated BBC
+; BASIC loader and executed before the game is relocated and started.
+;
+; The nine ENVELOPE definitions below are the original Video's Revenge sound
+; envelopes from the game's BBC BASIC loader.
+; @basic ENVELOPE1,1,5,-7,8,3,4,5,0,0,0,-6,126,0
+; @basic ENVELOPE2,1,2,5,2,1,1,2,0,0,0,-10,100,0
+; @basic ENVELOPE3,4,-4,-1,-1,20,20,20,1,0,0,0,1,1
+; @basic ENVELOPE4,2,2,2,4,10,15,60,0,0,0,0,0,0
+; @basic ENVELOPE5,3,-3,-4,-5,20,30,255,0,0,0,0,0,0
+; @basic ENVELOPE6,2,0,1,-1,1,1,1,-5,-5,-5,-5,100,0
+; @basic ENVELOPE7,1,8,5,3,6,8,9,0,0,0,-2,126,0
+; @basic ENVELOPE8,1,-1,-2,3,10,20,255,0,0,0,0,0,0
+; @basic ENVELOPE9,1,-8,6,-3,4,5,3,-1,-1,-1,-1,126,0
+;
 ; The @default-origin line is source metadata for the BBC 6502 Web Assembler.
 ; It pre-populates the Origin field when this file is opened, but it is not an
 ; ORG directive and does not constrain relocation. Change the Origin field to
