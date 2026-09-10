@@ -1,0 +1,1253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BBC 6502 Web Assembler (ChatGPT assisted)</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg:#101317; --panel:#171b21; --panel2:#1d232b; --border:#303844;
+  --text:#e7edf5; --muted:#9ba9b8; --accent:#62a8ff; --good:#65d68c;
+  --bad:#ff7474; --warn:#f1c75b; --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,sans-serif}
+body{display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:14px;padding:10px 14px;border-bottom:1px solid var(--border);background:#12161b}
+header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
+header .version{font:12px var(--mono);color:var(--muted)}
+.toolbar{display:flex;align-items:center;gap:7px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--panel);flex-wrap:wrap}
+button,.buttonlike,select,input[type=text]{border:1px solid var(--border);background:#222933;color:var(--text);border-radius:5px;padding:6px 9px;font:13px system-ui;cursor:pointer}
+button:hover,.buttonlike:hover{border-color:#4f6072;background:#29323e}
+button.primary{background:#245f9e;border-color:#347bc3}
+button.primary:hover{background:#2b70b8}
+button:disabled{opacity:.45;cursor:not-allowed}
+.toolbar .spacer{flex:1}
+.option{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px}
+.option input[type=text]{width:44px;padding:4px 5px;font-family:var(--mono);text-align:center}
+#workspace{flex:1;min-height:0;display:grid;grid-template-columns:minmax(440px, 1fr) minmax(330px, .55fr)}
+.editorPane{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.filebar{height:36px;padding:5px 8px;display:flex;align-items:center;gap:8px;background:var(--panel2);border-bottom:1px solid var(--border)}
+.filebar label{font-size:12px;color:var(--muted)}
+#fileSelect{min-width:240px;padding:4px 7px;font-family:var(--mono)}
+#dirty{font-size:12px;color:var(--warn);display:none}
+.editorWrap{position:relative;flex:1;min-height:0;background:#0e1115}
+#editor{position:absolute;inset:0;width:100%;height:100%;resize:none;border:0;outline:0;padding:12px 14px;background:#0e1115;color:#dce7f4;font:13.5px/1.48 var(--mono);tab-size:4;white-space:pre;overflow:auto;caret-color:#fff}
+.statusbar{height:28px;padding:5px 10px;background:var(--panel2);border-top:1px solid var(--border);font:12px var(--mono);color:var(--muted);display:flex;gap:18px}
+.resultsPane{display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--panel)}
+.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--panel2)}
+.tab{border:0;border-radius:0;background:transparent;padding:9px 13px;color:var(--muted);border-right:1px solid var(--border)}
+.tab.active{color:var(--text);background:var(--panel);box-shadow:inset 0 -2px var(--accent)}
+.tabContent{display:none;flex:1;min-height:0;overflow:auto;padding:12px}
+.tabContent.active{display:block}
+.summary{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;font:13px var(--mono);margin-bottom:14px}
+.summary .key{color:var(--muted)}
+.good{color:var(--good)} .bad{color:var(--bad)} .warning{color:var(--warn)}
+.message{padding:8px 9px;border:1px solid var(--border);border-radius:5px;margin:0 0 7px;background:#14191f;font:12.5px/1.4 var(--mono);cursor:pointer;white-space:pre-wrap;overflow-wrap:anywhere}
+.message.error{border-left:3px solid var(--bad)} .message.warn{border-left:3px solid var(--warn)}
+table{width:100%;border-collapse:collapse;font:12.5px var(--mono)}
+th,td{text-align:left;padding:6px 7px;border-bottom:1px solid var(--border);vertical-align:top}
+th{position:sticky;top:0;background:var(--panel);color:var(--muted);font-weight:600}
+.addr{color:#8dc1ff}.bytes{color:#c8d5e5}.source{color:#dfe7ef}
+.segmentActions button{padding:3px 6px;font-size:11px}
+#listingPre{margin:0;white-space:pre;font:12px/1.45 var(--mono);color:#cfdae7}
+.symbolTools{display:flex;gap:7px;margin-bottom:8px}
+#symbolFilter{flex:1;font-family:var(--mono)}
+.symbolRow{cursor:pointer}.symbolRow:hover td{background:#202730}
+dialog{max-width:760px;width:90vw;background:#171b21;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0;box-shadow:0 20px 70px #0008}
+dialog::backdrop{background:#0009}.dialogHead{display:flex;justify-content:space-between;align-items:center;padding:12px 15px;border-bottom:1px solid var(--border)}.dialogBody{padding:14px 18px;max-height:70vh;overflow:auto;font-size:13px;line-height:1.5}.dialogBody code,.dialogBody pre{font-family:var(--mono)}.dialogBody pre{background:#0e1115;border:1px solid var(--border);padding:10px;border-radius:5px;overflow:auto}.closeBtn{font-size:18px;padding:2px 8px}
+.dropHint{display:none;position:fixed;inset:20px;border:2px dashed var(--accent);background:#0b2b4ed9;z-index:99;align-items:center;justify-content:center;font-size:24px;font-weight:650;border-radius:12px}
+.dropHint.show{display:flex}
+@media(max-width:900px){#workspace{grid-template-columns:1fr;grid-template-rows:58% 42%}.editorPane{border-right:0;border-bottom:1px solid var(--border)}header h1{font-size:15px}.toolbar{gap:5px}}
+
+</style>
+</head>
+<body>
+<header><h1>BBC 6502 Web Assembler (ChatGPT assisted)</h1><span class="version" id="version"></span></header>
+<div class="toolbar">
+  <button id="newBtn">New</button>
+  <button id="openBtn">Open file(s)</button>
+  <button id="folderBtn">Open project folder</button>
+  <button id="saveSourceBtn">Save source</button>
+  <button id="saveSourceAsBtn">Save As…</button>
+  <button class="primary" id="assembleBtn">Assemble</button>
+  <button id="saveBinBtn" disabled>Save binary</button>
+  <button id="saveListingBtn" disabled>Save listing</button>
+  <button id="saveSymbolsBtn" disabled>Save symbols</button>
+  <span class="spacer"></span>
+  <label class="option"><input id="illegalOps" type="checkbox" checked> undocumented NMOS opcodes</label>
+  <label class="option">gap fill <input id="fillByte" type="text" value="00" maxlength="2"></label>
+  <button id="helpBtn">Syntax help</button>
+</div>
+<input id="openInput" type="file" multiple hidden accept=".asm,.s,.inc,.6502,.txt,text/plain">
+<input id="folderInput" type="file" multiple webkitdirectory hidden>
+<div id="workspace">
+  <section class="editorPane">
+    <div class="filebar"><label>Source</label><select id="fileSelect"></select><span id="dirty">modified</span></div>
+    <div class="editorWrap"><textarea id="editor" spellcheck="false" aria-label="6502 source editor"></textarea></div>
+    <div class="statusbar"><span id="cursorPos">Ln 1, Col 1</span><span id="sourceStats"></span><span>Ctrl+Enter: assemble</span><span>Ctrl+S: save source</span><span>Ctrl+Shift+S: Save As…</span></div>
+  </section>
+  <section class="resultsPane">
+    <div class="tabs">
+      <button class="tab active" data-target="buildTab">Build</button>
+      <button class="tab" data-target="segmentsTab">Segments</button>
+      <button class="tab" data-target="symbolsTab">Symbols</button>
+      <button class="tab" data-target="listingTab">Listing</button>
+    </div>
+    <div class="tabContent active" id="buildTab"><div id="buildContent"></div></div>
+    <div class="tabContent" id="segmentsTab"><table><thead><tr><th>#</th><th>Start</th><th>End</th><th>Bytes</th><th></th></tr></thead><tbody id="segmentsBody"></tbody></table></div>
+    <div class="tabContent" id="symbolsTab"><div class="symbolTools"><input id="symbolFilter" type="text" placeholder="Filter symbols"></div><table><thead><tr><th>Address</th><th>Symbol</th></tr></thead><tbody id="symbolsBody"></tbody></table></div>
+    <div class="tabContent" id="listingTab"><pre id="listingPre"></pre></div>
+  </section>
+</div>
+<div class="dropHint" id="dropHint">Drop source/project files here</div>
+<dialog id="helpDialog">
+  <div class="dialogHead"><strong>Assembler syntax</strong><button class="closeBtn" id="closeHelp">×</button></div>
+  <div class="dialogBody">
+    <p>This is a generic two-pass NMOS 6502 assembler. Symbols are case-insensitive. A source can be a single file or a project using <code>INCLUDE</code>.</p>
+<pre>ORG &1900
+OSWRCH = &FFEE
+
+start:
+    LDX #0
+.loop:
+    LDA message,X
+    BEQ done
+    JSR OSWRCH
+    INX
+    BNE .loop
+.done:
+    RTS
+
+message:
+    EQUS "HELLO"
+    EQUB 13,10,0</pre>
+    <p><b>Numbers:</b> <code>&FF</code> or <code>$FF</code> hexadecimal, <code>%1010</code> binary, decimal integers. Expressions support <code>+ - * / % &amp; | ^ &lt;&lt; &gt;&gt;</code>, parentheses, unary <code>&lt;</code> low byte and <code>&gt;</code> high byte. In prefix position <code>*</code> is the current assembly address.</p>
+    <p><b>Directives:</b> <code>ORG</code>, <code>EQUB/.BYTE/DB</code>, <code>EQUW/.WORD/DW</code>, <code>EQUD/.DWORD/DD</code>, <code>EQUS/.TEXT</code>, <code>SKIP/DS/RES</code>, <code>FILL</code>, <code>ALIGN</code>, <code>ASSERT</code>, and <code>INCLUDE "file.asm"</code>.</p>
+    <p><b>Labels:</b> <code>name:</code> and BBC/BeebAsm-style <code>.name</code> are accepted. Constants may use <code>name = expression</code> or <code>name EQU expression</code>.</p>
+    <p><b>Address-size control:</b> a literal written with four or more hex digits, e.g. <code>LDA &00F0</code>, forces absolute addressing where available. You can also write <code>LDA.ABS symbol</code> or <code>LDA.ZP symbol</code>. This matters when reproducing exact binaries.</p>
+    <p><b>Undocumented NMOS opcodes:</b> common stable forms are supported, including <code>SLO RLA SRE RRA SAX LAX DCP ISC ANC ALR ARR AXS LAS AHX SHY SHX TAS</code>. Zalaga's undocumented <code>NOP abs,X</code> uses opcode <code>&DC</code>. Disable illegal opcodes using the toolbar checkbox.</p>
+    <p><b>Multiple ORGs:</b> emitted ranges are shown as separate segments. “Save binary” creates one flat file from the lowest to highest emitted address and fills gaps with the selected fill byte. Each individual segment can also be downloaded from the Segments tab.</p>
+  </div>
+</dialog>
+<script>
+/*
+ * BBC 6502 Web Assembler - core
+ * Generic two-pass NMOS 6502 assembler. No external dependencies.
+ * Browser + Node compatible (UMD style export at end).
+ */
+(function (global) {
+  'use strict';
+
+  const MODES = {
+    imp: 1,
+    acc: 1,
+    imm: 2,
+    zp: 2,
+    zpx: 2,
+    zpy: 2,
+    indx: 2,
+    indy: 2,
+    rel: 2,
+    abs: 3,
+    absx: 3,
+    absy: 3,
+    ind: 3
+  };
+
+  const BRANCHES = new Set(['BCC','BCS','BEQ','BMI','BNE','BPL','BVC','BVS']);
+
+  // Official NMOS 6502 instruction set plus a useful set of stable undocumented
+  // instructions. NOP absx deliberately uses &DC because Zalaga uses that exact
+  // undocumented encoding. Exact alternative illegal encodings can always be
+  // emitted with EQUB/.BYTE.
+  const OPCODES = {};
+  function add(op, entries) {
+    op = op.toUpperCase();
+    OPCODES[op] = OPCODES[op] || {};
+    Object.assign(OPCODES[op], entries);
+  }
+
+  add('ADC',{imm:0x69,zp:0x65,zpx:0x75,abs:0x6D,absx:0x7D,absy:0x79,indx:0x61,indy:0x71});
+  add('AND',{imm:0x29,zp:0x25,zpx:0x35,abs:0x2D,absx:0x3D,absy:0x39,indx:0x21,indy:0x31});
+  add('ASL',{acc:0x0A,zp:0x06,zpx:0x16,abs:0x0E,absx:0x1E});
+  add('BCC',{rel:0x90}); add('BCS',{rel:0xB0}); add('BEQ',{rel:0xF0}); add('BMI',{rel:0x30});
+  add('BNE',{rel:0xD0}); add('BPL',{rel:0x10}); add('BVC',{rel:0x50}); add('BVS',{rel:0x70});
+  add('BIT',{zp:0x24,abs:0x2C});
+  add('BRK',{imp:0x00}); add('CLC',{imp:0x18}); add('CLD',{imp:0xD8}); add('CLI',{imp:0x58}); add('CLV',{imp:0xB8});
+  add('CMP',{imm:0xC9,zp:0xC5,zpx:0xD5,abs:0xCD,absx:0xDD,absy:0xD9,indx:0xC1,indy:0xD1});
+  add('CPX',{imm:0xE0,zp:0xE4,abs:0xEC}); add('CPY',{imm:0xC0,zp:0xC4,abs:0xCC});
+  add('DEC',{zp:0xC6,zpx:0xD6,abs:0xCE,absx:0xDE}); add('DEX',{imp:0xCA}); add('DEY',{imp:0x88});
+  add('EOR',{imm:0x49,zp:0x45,zpx:0x55,abs:0x4D,absx:0x5D,absy:0x59,indx:0x41,indy:0x51});
+  add('INC',{zp:0xE6,zpx:0xF6,abs:0xEE,absx:0xFE}); add('INX',{imp:0xE8}); add('INY',{imp:0xC8});
+  add('JMP',{abs:0x4C,ind:0x6C}); add('JSR',{abs:0x20});
+  add('LDA',{imm:0xA9,zp:0xA5,zpx:0xB5,abs:0xAD,absx:0xBD,absy:0xB9,indx:0xA1,indy:0xB1});
+  add('LDX',{imm:0xA2,zp:0xA6,zpy:0xB6,abs:0xAE,absy:0xBE});
+  add('LDY',{imm:0xA0,zp:0xA4,zpx:0xB4,abs:0xAC,absx:0xBC});
+  add('LSR',{acc:0x4A,zp:0x46,zpx:0x56,abs:0x4E,absx:0x5E});
+  add('NOP',{imp:0xEA,imm:0x80,zp:0x04,zpx:0x14,abs:0x0C,absx:0xDC});
+  add('ORA',{imm:0x09,zp:0x05,zpx:0x15,abs:0x0D,absx:0x1D,absy:0x19,indx:0x01,indy:0x11});
+  add('PHA',{imp:0x48}); add('PHP',{imp:0x08}); add('PLA',{imp:0x68}); add('PLP',{imp:0x28});
+  add('ROL',{acc:0x2A,zp:0x26,zpx:0x36,abs:0x2E,absx:0x3E});
+  add('ROR',{acc:0x6A,zp:0x66,zpx:0x76,abs:0x6E,absx:0x7E});
+  add('RTI',{imp:0x40}); add('RTS',{imp:0x60});
+  add('SBC',{imm:0xE9,zp:0xE5,zpx:0xF5,abs:0xED,absx:0xFD,absy:0xF9,indx:0xE1,indy:0xF1});
+  add('SEC',{imp:0x38}); add('SED',{imp:0xF8}); add('SEI',{imp:0x78});
+  add('STA',{zp:0x85,zpx:0x95,abs:0x8D,absx:0x9D,absy:0x99,indx:0x81,indy:0x91});
+  add('STX',{zp:0x86,zpy:0x96,abs:0x8E}); add('STY',{zp:0x84,zpx:0x94,abs:0x8C});
+  add('TAX',{imp:0xAA}); add('TAY',{imp:0xA8}); add('TSX',{imp:0xBA}); add('TXA',{imp:0x8A}); add('TXS',{imp:0x9A}); add('TYA',{imp:0x98});
+
+  // Common/stable undocumented NMOS 6502 instructions.
+  add('SLO',{zp:0x07,zpx:0x17,abs:0x0F,absx:0x1F,absy:0x1B,indx:0x03,indy:0x13});
+  add('RLA',{zp:0x27,zpx:0x37,abs:0x2F,absx:0x3F,absy:0x3B,indx:0x23,indy:0x33});
+  add('SRE',{zp:0x47,zpx:0x57,abs:0x4F,absx:0x5F,absy:0x5B,indx:0x43,indy:0x53});
+  add('RRA',{zp:0x67,zpx:0x77,abs:0x6F,absx:0x7F,absy:0x7B,indx:0x63,indy:0x73});
+  add('SAX',{zp:0x87,zpy:0x97,abs:0x8F,indx:0x83});
+  add('LAX',{zp:0xA7,zpy:0xB7,abs:0xAF,absy:0xBF,indx:0xA3,indy:0xB3});
+  add('DCP',{zp:0xC7,zpx:0xD7,abs:0xCF,absx:0xDF,absy:0xDB,indx:0xC3,indy:0xD3});
+  add('ISC',{zp:0xE7,zpx:0xF7,abs:0xEF,absx:0xFF,absy:0xFB,indx:0xE3,indy:0xF3});
+  add('ISB',OPCODES.ISC);
+  add('ANC',{imm:0x0B}); add('ALR',{imm:0x4B}); add('ASR',{imm:0x4B}); add('ARR',{imm:0x6B});
+  add('XAA',{imm:0x8B}); add('AXS',{imm:0xCB}); add('SBX',{imm:0xCB});
+  add('LAS',{absy:0xBB}); add('AHX',{indy:0x93,absy:0x9F}); add('SHA',{indy:0x93,absy:0x9F});
+  add('SHY',{absx:0x9C}); add('SHX',{absy:0x9E}); add('TAS',{absy:0x9B}); add('SHS',{absy:0x9B});
+  add('KIL',{imp:0x02}); add('JAM',{imp:0x02});
+
+  const UNDOCUMENTED = new Set(['SLO','RLA','SRE','RRA','SAX','LAX','DCP','ISC','ISB','ANC','ALR','ASR','ARR','XAA','AXS','SBX','LAS','AHX','SHA','SHY','SHX','TAS','SHS','KIL','JAM']);
+
+  class AsmError extends Error {
+    constructor(message, lineInfo=null, phase='assembly') {
+      super(message); this.name='AsmError'; this.lineInfo=lineInfo; this.phase=phase;
+    }
+  }
+
+  function canon(name) { const s=String(name); return (s.startsWith('.')?s.slice(1):s).toUpperCase(); }
+
+  function stripComment(line) {
+    let quote = null;
+    for (let i=0;i<line.length;i++) {
+      const c=line[i];
+      if (quote) {
+        if (c==='\\') { i++; continue; }
+        if (c===quote) quote=null;
+      } else if (c==='"' || c==="'") quote=c;
+      else if (c===';') return line.slice(0,i);
+    }
+    return line;
+  }
+
+  function splitComma(text) {
+    const out=[]; let start=0, depth=0, quote=null;
+    for (let i=0;i<text.length;i++) {
+      const c=text[i];
+      if (quote) {
+        if (c==='\\') { i++; continue; }
+        if (c===quote) quote=null;
+      } else if (c==='"' || c==="'") quote=c;
+      else if (c==='(') depth++;
+      else if (c===')') depth--;
+      else if (c===',' && depth===0) { out.push(text.slice(start,i).trim()); start=i+1; }
+    }
+    out.push(text.slice(start).trim());
+    return out.filter(x=>x.length>0);
+  }
+
+  function decodeString(token) {
+    token=token.trim();
+    if (token.length<2 || !((token[0]==='"'&&token.at(-1)==='"')||(token[0]==="'"&&token.at(-1)==="'"))) return null;
+    const q=token[0]; let s='';
+    for (let i=1;i<token.length-1;i++) {
+      let c=token[i];
+      if (c==='\\' && i<token.length-2) {
+        const n=token[++i];
+        if (n==='n') c='\n'; else if(n==='r') c='\r'; else if(n==='t') c='\t';
+        else if(n==='0') c='\0'; else if(n==='x' && i+2<token.length-1) { c=String.fromCharCode(parseInt(token.slice(i+1,i+3),16)); i+=2; }
+        else c=n;
+      }
+      s+=c;
+    }
+    return s;
+  }
+
+  class ExpressionParser {
+    constructor(text, resolver, pc=0, allowUnknown=false) {
+      this.text=text; this.resolver=resolver; this.pc=pc; this.allowUnknown=allowUnknown; this.pos=0; this.tokens=[]; this.index=0;
+      this.tokenize();
+    }
+    tokenize() {
+      const s=this.text; let i=0;
+      const toks=[];
+      const isStart=c=>/[A-Za-z_.$@]/.test(c);
+      const isBody=c=>/[A-Za-z0-9_.$@]/.test(c);
+      while(i<s.length) {
+        if (/\s/.test(s[i])) { i++; continue; }
+        const two=s.slice(i,i+2);
+        if (two==='<<'||two==='>>') { toks.push({t:'op',v:two}); i+=2; continue; }
+        const c=s[i];
+        if (c==='&') {
+          const m=s.slice(i+1).match(/^[0-9A-Fa-f]+/); if(!m) throw new Error('Bad hex literal');
+          toks.push({t:'num',v:parseInt(m[0],16),raw:'&'+m[0]}); i+=1+m[0].length; continue;
+        }
+        if (c==='$') {
+          const m=s.slice(i+1).match(/^[0-9A-Fa-f]+/); if(m) { toks.push({t:'num',v:parseInt(m[0],16),raw:'$'+m[0]}); i+=1+m[0].length; continue; }
+        }
+        if (c==='%' && /[01]/.test(s[i+1]||'')) {
+          const m=s.slice(i+1).match(/^[01]+/); toks.push({t:'num',v:parseInt(m[0],2),raw:'%'+m[0]}); i+=1+m[0].length; continue;
+        }
+        if (/\d/.test(c)) {
+          const m=s.slice(i).match(/^\d+/); toks.push({t:'num',v:parseInt(m[0],10),raw:m[0]}); i+=m[0].length; continue;
+        }
+        if (c==='"' || c==="'") {
+          const q=c; let j=i+1, raw=q;
+          while(j<s.length) { const d=s[j++]; raw+=d; if(d==='\\'&&j<s.length){raw+=s[j++];continue;} if(d===q) break; }
+          const str=decodeString(raw); if(str===null||str.length!==1) throw new Error('Character expression must contain exactly one character');
+          toks.push({t:'num',v:str.charCodeAt(0),raw}); i=j; continue;
+        }
+        if (isStart(c)) {
+          let j=i+1; while(j<s.length && isBody(s[j])) j++;
+          toks.push({t:'id',v:s.slice(i,j)}); i=j; continue;
+        }
+        if ('()+-*/%^|~<>'.includes(c)) { toks.push({t:'op',v:c}); i++; continue; }
+        throw new Error(`Unexpected character '${c}'`);
+      }
+      toks.push({t:'eof',v:''}); this.tokens=toks;
+    }
+    peek() {
+      return this.tokens[this.index];
+    }
+
+    take() {
+      return this.tokens[this.index++];
+    }
+
+    precedence(op) {
+      const levels = {
+        '|': 1,
+        '^': 2,
+        '&': 3,
+        '<<': 4,
+        '>>': 4,
+        '+': 5,
+        '-': 5,
+        '*': 6,
+        '/': 6,
+        '%': 6
+      };
+      return levels[op] || 0;
+    }
+
+    parse() {
+      const value = this.expr(0);
+      if (this.peek().t !== 'eof') {
+        throw new Error(`Unexpected token '${this.peek().v}'`);
+      }
+      return value;
+    }
+    expr(minPrec) {
+      let left=this.prefix();
+      while(true) {
+        const tok=this.peek(); if(tok.t!=='op') break;
+        const prec=this.precedence(tok.v); if(prec===0||prec<=minPrec) break;
+        this.take(); const right=this.expr(prec);
+        if (left===null||right===null) left=null;
+        else switch(tok.v) {
+          case '+': left=left+right; break; case '-': left=left-right; break; case '*': left=left*right; break;
+          case '/': if(right===0) throw new Error('Division by zero'); left=Math.trunc(left/right); break;
+          case '%': if(right===0) throw new Error('Modulo by zero'); left=left%right; break;
+          case '<<': left=left<<right; break; case '>>': left=left>>right; break;
+          case '&': left=left&right; break; case '^': left=left^right; break; case '|': left=left|right; break;
+        }
+      }
+      return left;
+    }
+    prefix() {
+      const tok=this.take();
+      if(tok.t==='num') return tok.v;
+      if(tok.t==='id') {
+        const v=this.resolver(tok.v); if(v===undefined||v===null) { if(this.allowUnknown) return null; throw new Error(`Unknown symbol '${tok.v}'`); } return v;
+      }
+      if(tok.t==='op'&&tok.v==='(') { const v=this.expr(0); const r=this.take(); if(r.v!==')') throw new Error("Expected ')'"); return v; }
+      if(tok.t==='op' && ['+','-','~','<','>','*'].includes(tok.v)) {
+        if(tok.v==='*') return this.pc;
+        const v=this.prefix(); if(v===null) return null;
+        if(tok.v==='+') return +v; if(tok.v==='-') return -v; if(tok.v==='~') return ~v;
+        if(tok.v==='<') return v&0xFF; if(tok.v==='>') return (v>>8)&0xFF;
+      }
+      throw new Error(`Unexpected token '${tok.v}'`);
+    }
+  }
+
+  class Assembler6502 {
+    constructor(options={}) {
+      this.options=Object.assign({allowUndocumented:true,fillByte:0x00},options);
+      this.symbols=new Map(); this.symbolNames=new Map(); this.errors=[]; this.warnings=[];
+      this.expanded=[]; this.records=[]; this.pendingAssignments=[];
+    }
+
+    error(lineInfo, message, phase='assembly') {
+      this.errors.push({message,phase,file:lineInfo?.file||'',line:lineInfo?.line||0,text:lineInfo?.text||''});
+    }
+    warn(lineInfo,message) { this.warnings.push({message,file:lineInfo?.file||'',line:lineInfo?.line||0,text:lineInfo?.text||''}); }
+
+    resolve(name) { return this.symbols.get(canon(name)); }
+    setSymbol(name,value,lineInfo,kind='label') {
+      const key=canon(name); const old=this.symbols.get(key);
+      if(old!==undefined && old!==value) { this.error(lineInfo,`Duplicate/redefined symbol '${name}' (old=&${old.toString(16).toUpperCase()}, new=&${value.toString(16).toUpperCase()})`,'pass1'); return; }
+      this.symbols.set(key,value); if(!this.symbolNames.has(key)) this.symbolNames.set(key,name);
+    }
+
+    evalExpr(text, pc, allowUnknown=false) {
+      return new ExpressionParser(text,n=>this.resolve(n),pc,allowUnknown).parse();
+    }
+
+    expandSource(mainName, files) {
+      const map = new Map();
+      if(files instanceof Map) for(const [k,v] of files) map.set(k,String(v));
+      else if(files) for(const k of Object.keys(files)) map.set(k,String(files[k]));
+      const getFile=(name)=>{
+        if(map.has(name)) return map.get(name);
+        const base=name.split(/[\\/]/).pop();
+        for(const [k,v] of map) if(k.split(/[\\/]/).pop()===base) return v;
+        return undefined;
+      };
+      const out=[]; const stack=[];
+      const visit=(name,text)=>{
+        if(stack.includes(name)) { this.error({file:name,line:0,text:''},`Recursive INCLUDE: ${[...stack,name].join(' -> ')}`,'preprocess'); return; }
+        stack.push(name);
+        const lines=String(text).replace(/\r\n?/g,'\n').split('\n');
+        for(let i=0;i<lines.length;i++) {
+          const info={file:name,line:i+1,text:lines[i]}; const code=stripComment(lines[i]).trim();
+          const m=code.match(/^\.?INCLUDE\s+["']([^"']+)["']\s*$/i);
+          if(m) {
+            const inc=m[1]; const txt=getFile(inc);
+            if(txt===undefined) this.error(info,`INCLUDE file not loaded: ${inc}`,'preprocess');
+            else visit(inc,txt);
+          } else out.push(info);
+        }
+        stack.pop();
+      };
+      const mainText=getFile(mainName);
+      if(mainText===undefined) throw new Error(`Main source '${mainName}' not found`);
+      visit(mainName,mainText); this.expanded=out; return out;
+    }
+
+    parseLabelAndCode(raw) {
+      let code=stripComment(raw).trim(), label=null;
+      if(!code) return {label,code};
+      let m=code.match(/^([A-Za-z_.$@][A-Za-z0-9_.$@]*):(?:\s*(.*))?$/);
+      if(m) return {label:m[1],code:(m[2]||'').trim()};
+      // BeebAsm/BBC-style .label, optionally followed by a statement.
+      m=code.match(/^(\.[A-Za-z_.$@][A-Za-z0-9_.$@]*)(?:\s+(.*))?$/);
+      if(m) return {label:m[1],code:(m[2]||'').trim()};
+      return {label,code};
+    }
+
+    determineMode(op,arg,pc,force,allowUnknown) {
+      op=op.toUpperCase(); arg=(arg||'').trim(); const avail=OPCODES[op]||{};
+      if(!arg) return 'imp';
+      if(arg.toUpperCase()==='A') return 'acc';
+      if(BRANCHES.has(op)) return 'rel';
+      if(arg.startsWith('#')) return 'imm';
+      if(/^\(.*,[Xx]\)$/.test(arg)) return 'indx';
+      if(/^\(.*\),[Yy]$/.test(arg)) return 'indy';
+      if(/^\(.*\)$/.test(arg)) return 'ind';
+
+      let idx=null, base=arg;
+      if(/,[Xx]$/.test(arg)) {idx='x';base=arg.slice(0,-2).trim();}
+      else if(/,[Yy]$/.test(arg)) {idx='y';base=arg.slice(0,-2).trim();}
+
+      let value=null;
+      try { value=this.evalExpr(base,pc,allowUnknown); } catch(e) { if(!allowUnknown) throw e; value=null; }
+      const explicit4=/^[&$][0-9A-Fa-f]{4,}$/.test(base);
+      const wantZp=force==='ZP' || (force!=='ABS' && !explicit4 && value!==null && value>=0 && value<=0xFF);
+      if(idx==='x') { if(wantZp && avail.zpx!==undefined) return 'zpx'; return avail.absx!==undefined?'absx':'zpx'; }
+      if(idx==='y') { if(wantZp && avail.zpy!==undefined) return 'zpy'; return avail.absy!==undefined?'absy':'zpy'; }
+      if(op==='JMP'||op==='JSR') return 'abs';
+      if(wantZp && avail.zp!==undefined) return 'zp';
+      if(avail.abs!==undefined) return 'abs';
+      if(avail.zp!==undefined) return 'zp';
+      return 'abs';
+    }
+
+    operandExpr(mode,arg) {
+      arg=(arg||'').trim();
+      if(mode==='imm') return arg.slice(1).trim();
+      if(mode==='indx') return arg.slice(1,-3).trim();
+      if(mode==='indy') return arg.slice(1,-3).trim();
+      if(mode==='ind') return arg.slice(1,-1).trim();
+      if(['zpx','zpy','absx','absy'].includes(mode)) return arg.slice(0,-2).trim();
+      return arg;
+    }
+
+    firstPass() {
+      let pc=0, haveOrg=false; this.records=[]; this.pendingAssignments=[];
+      for(const info of this.expanded) {
+        const parsed=this.parseLabelAndCode(info.text); let code=parsed.code;
+        if(parsed.label) this.setSymbol(parsed.label,pc,info,'label');
+        if(!code) { this.records.push({kind:'empty',pc,info}); continue; }
+
+        let m=code.match(/^([A-Za-z_.$@][A-Za-z0-9_.$@]*)\s*=\s*(.+)$/);
+        if(m) {
+          try { const v=this.evalExpr(m[2],pc,true); if(v===null) this.pendingAssignments.push({name:m[1],expr:m[2],pc,info}); else this.setSymbol(m[1],v,info,'constant'); }
+          catch(e){this.error(info,e.message,'pass1');}
+          this.records.push({kind:'assign',pc,info}); continue;
+        }
+        m=code.match(/^([A-Za-z_.$@][A-Za-z0-9_.$@]*)\s+EQU\s+(.+)$/i);
+        if(m) {
+          try { const v=this.evalExpr(m[2],pc,true); if(v===null) this.pendingAssignments.push({name:m[1],expr:m[2],pc,info}); else this.setSymbol(m[1],v,info,'constant'); }
+          catch(e){this.error(info,e.message,'pass1');}
+          this.records.push({kind:'assign',pc,info}); continue;
+        }
+        m=code.match(/^\.?EQU\s+([A-Za-z_.$@][A-Za-z0-9_.$@]*)\s*,?\s*(.+)$/i);
+        if(m) {
+          try { const v=this.evalExpr(m[2],pc,true); if(v===null) this.pendingAssignments.push({name:m[1],expr:m[2],pc,info}); else this.setSymbol(m[1],v,info,'constant'); }
+          catch(e){this.error(info,e.message,'pass1');}
+          this.records.push({kind:'assign',pc,info}); continue;
+        }
+
+        m=code.match(/^\.?ORG\s+(.+)$/i);
+        if(m) {
+          try { const v=this.evalExpr(m[1],pc,false); if(v<0||v>0xFFFF) throw new Error('ORG outside 16-bit address space'); pc=v; haveOrg=true; this.records.push({kind:'org',pc,org:v,info}); }
+          catch(e){this.error(info,e.message,'pass1');}
+          continue;
+        }
+
+        const d=code.match(/^\.?([A-Za-z]+(?:\.(?:ABS|A|ZP|Z))?)(?:\s+(.*))?$/i);
+        if(!d) { this.error(info,`Cannot parse '${code}'`,'pass1'); continue; }
+        const word=d[1].toUpperCase(), arg=(d[2]||'').trim();
+
+        if(['EQUB','BYTE','DB'].includes(word)) {
+          let count=0;
+          for(const t of splitComma(arg)) { const st=decodeString(t); count += st!==null ? st.length : 1; }
+          this.records.push({kind:'bytes',pc,size:count,arg,info}); pc+=count; continue;
+        }
+        if(['EQUS','TEXT','ASCII'].includes(word)) {
+          let count=0;
+          for(const t of splitComma(arg)) { const st=decodeString(t); if(st===null) {this.error(info,'EQUS/.TEXT requires string arguments','pass1'); continue;} count+=st.length; }
+          this.records.push({kind:'text',pc,size:count,arg,info}); pc+=count; continue;
+        }
+        if(['EQUW','WORD','DW'].includes(word)) { const n=splitComma(arg).length; this.records.push({kind:'words',pc,size:n*2,arg,info}); pc+=n*2; continue; }
+        if(['EQUD','DWORD','DD'].includes(word)) { const n=splitComma(arg).length; this.records.push({kind:'dwords',pc,size:n*4,arg,info}); pc+=n*4; continue; }
+        if(['SKIP','DS','RES'].includes(word)) {
+          try { const parts=splitComma(arg), n=this.evalExpr(parts[0],pc,false); if(n<0) throw new Error('Negative reserve size'); const fill=parts[1]?this.evalExpr(parts[1],pc,false)&255:0; this.records.push({kind:'fill',pc,size:n,fill,info}); pc+=n; }
+          catch(e){this.error(info,e.message,'pass1');} continue;
+        }
+        if(word==='FILL') {
+          try { const parts=splitComma(arg), n=this.evalExpr(parts[0],pc,false); const fill=parts[1]?this.evalExpr(parts[1],pc,false)&255:0; if(n<0) throw new Error('Negative fill size'); this.records.push({kind:'fill',pc,size:n,fill,info}); pc+=n; }
+          catch(e){this.error(info,e.message,'pass1');} continue;
+        }
+        if(word==='ALIGN') {
+          try { const parts=splitComma(arg), boundary=this.evalExpr(parts[0],pc,false), fill=parts[1]?this.evalExpr(parts[1],pc,false)&255:0; if(boundary<=0) throw new Error('ALIGN boundary must be > 0'); const n=(boundary-(pc%boundary))%boundary; this.records.push({kind:'fill',pc,size:n,fill,info}); pc+=n; }
+          catch(e){this.error(info,e.message,'pass1');} continue;
+        }
+        if(word==='ASSERT') { this.records.push({kind:'assert',pc,arg,info}); continue; }
+
+        // Instruction: permit suffix .ABS/.A and .ZP/.Z.
+        let opToken=word, force=null;
+        const sm=code.match(/^([A-Za-z]{2,4})(?:\.(ABS|A|ZP|Z))?(?:\s+(.*))?$/i);
+        if(!sm || !OPCODES[sm[1].toUpperCase()]) { this.error(info,`Unknown opcode/directive '${word}'`,'pass1'); continue; }
+        opToken=sm[1].toUpperCase(); force=sm[2]?sm[2].toUpperCase():null; if(force==='A')force='ABS'; if(force==='Z')force='ZP'; const operand=(sm[3]||'').trim();
+        if(UNDOCUMENTED.has(opToken) && !this.options.allowUndocumented) { this.error(info,`Undocumented opcode ${opToken} disabled`,'pass1'); continue; }
+        try {
+          const mode=this.determineMode(opToken,operand,pc,force,true);
+          if(OPCODES[opToken][mode]===undefined) throw new Error(`${opToken} does not support addressing mode ${mode}`);
+          const size=MODES[mode]; this.records.push({kind:'instruction',pc,size,op:opToken,mode,arg:operand,force,info}); pc+=size;
+        } catch(e) {this.error(info,e.message,'pass1');}
+      }
+
+      // Resolve constants that depended on forward labels/constants.
+      let progress=true;
+      for(let rounds=0;rounds<64 && progress && this.pendingAssignments.length;rounds++) {
+        progress=false; const next=[];
+        for(const a of this.pendingAssignments) {
+          try { const v=this.evalExpr(a.expr,a.pc,true); if(v===null) next.push(a); else {this.setSymbol(a.name,v,a.info,'constant');progress=true;} }
+          catch(e){next.push(a);}
+        }
+        this.pendingAssignments=next;
+      }
+      for(const a of this.pendingAssignments) this.error(a.info,`Could not resolve assignment ${a.name} = ${a.expr}`,'pass1');
+      if(!haveOrg) this.warn(null,'No ORG directive found; assembly begins at &0000.');
+    }
+
+    assemble(mainName,files) {
+      this.symbols=new Map(); this.symbolNames=new Map(); this.errors=[]; this.warnings=[]; this.records=[]; this.pendingAssignments=[];
+      try { this.expandSource(mainName,files); } catch(e) { this.error({file:mainName,line:0,text:''},e.message,'preprocess'); }
+      if(!this.errors.length) this.firstPass();
+      if(this.errors.length) return this.result(false);
+
+      const mem=new Uint8Array(65536), used=new Uint8Array(65536); const listing=[];
+      const emit=(addr,bytes,info)=>{
+        if(addr<0||addr+bytes.length>65536) {this.error(info,'Output exceeds 16-bit address space','pass2');return;}
+        for(let i=0;i<bytes.length;i++) {
+          if(used[addr+i]) {this.error(info,`Output overlap at &${(addr+i).toString(16).padStart(4,'0').toUpperCase()}`,'pass2');return;}
+          mem[addr+i]=bytes[i]&255; used[addr+i]=1;
+        }
+      };
+
+      for(const rec of this.records) {
+        const {info}=rec; let bytes=[];
+        try {
+          if(rec.kind==='instruction') {
+            const opbyte=OPCODES[rec.op][rec.mode]; bytes=[opbyte];
+            if(rec.mode==='imp'||rec.mode==='acc') {}
+            else if(rec.mode==='rel') {
+              const target=this.evalExpr(rec.arg,rec.pc,false); let off=target-(rec.pc+2);
+              if(off < -128 || off > 127) throw new Error(`Branch out of range: target &${(target&0xFFFF).toString(16).padStart(4,'0').toUpperCase()} is ${off} bytes from branch`);
+              bytes.push(off&255);
+            } else {
+              const expr=this.operandExpr(rec.mode,rec.arg); const v=this.evalExpr(expr,rec.pc,false);
+              if(rec.mode==='imm'||rec.mode==='zp'||rec.mode==='zpx'||rec.mode==='zpy'||rec.mode==='indx'||rec.mode==='indy') {
+                if(v < -128 || v > 0xFF) this.warn(info,`8-bit operand truncated to &${(v&255).toString(16).padStart(2,'0').toUpperCase()}`);
+                bytes.push(v&255);
+              } else { bytes.push(v&255,(v>>8)&255); }
+            }
+          } else if(rec.kind==='bytes') {
+            for(const t of splitComma(rec.arg)) { const st=decodeString(t); if(st!==null) for(const c of st) bytes.push(c.charCodeAt(0)&255); else bytes.push(this.evalExpr(t,rec.pc+bytes.length,false)&255); }
+          } else if(rec.kind==='text') {
+            for(const t of splitComma(rec.arg)) { const st=decodeString(t); if(st===null) throw new Error('EQUS/.TEXT requires strings'); for(const c of st) bytes.push(c.charCodeAt(0)&255); }
+          } else if(rec.kind==='words') {
+            for(const t of splitComma(rec.arg)) { const v=this.evalExpr(t,rec.pc+bytes.length,false); bytes.push(v&255,(v>>8)&255); }
+          } else if(rec.kind==='dwords') {
+            for(const t of splitComma(rec.arg)) { const v=this.evalExpr(t,rec.pc+bytes.length,false)>>>0; bytes.push(v&255,(v>>8)&255,(v>>16)&255,(v>>24)&255); }
+          } else if(rec.kind==='fill') bytes=Array(rec.size).fill(rec.fill&255);
+          else if(rec.kind==='assert') { const v=this.evalExpr(rec.arg,rec.pc,false); if(!v) throw new Error(`ASSERT failed: ${rec.arg}`); }
+
+          if(bytes.length) {
+            emit(rec.pc,bytes,info);
+            listing.push({address:rec.pc,bytes:Uint8Array.from(bytes),file:info.file,line:info.line,source:info.text});
+          }
+        } catch(e) { this.error(info,e.message,'pass2'); }
+      }
+
+      return this.result(this.errors.length===0,mem,used,listing);
+    }
+
+    result(success,mem=null,used=null,listing=[]) {
+      const syms={}; for(const [k,v] of this.symbols) syms[this.symbolNames.get(k)||k]=v;
+      if(!success||!mem||!used) return {success:false,errors:this.errors,warnings:this.warnings,symbols:syms,segments:[],binary:new Uint8Array(0),origin:null,end:null,listing:[],listingText:'',symbolText:this.symbolText(syms),emittedBytes:0,addressSpan:0};
+      const segments=[]; let i=0, emitted=0;
+      while(i<65536) {
+        while(i<65536&&!used[i])i++; if(i>=65536)break; const start=i; const arr=[];
+        while(i<65536&&used[i]){arr.push(mem[i]);i++;emitted++;}
+        segments.push({start,end:i-1,bytes:Uint8Array.from(arr)});
+      }
+      let origin=segments.length?segments[0].start:null, end=segments.length?segments.at(-1).end:null;
+      let binary=new Uint8Array(0);
+      if(origin!==null) { binary=new Uint8Array(end-origin+1); binary.fill(this.options.fillByte&255); for(const seg of segments) binary.set(seg.bytes,seg.start-origin); }
+      const listingText=listing.map(x=>`${x.address.toString(16).padStart(4,'0').toUpperCase()}  ${Array.from(x.bytes).map(b=>b.toString(16).padStart(2,'0').toUpperCase()).join(' ').padEnd(23)} ${x.file}:${x.line}  ${x.source}`).join('\n')+'\n';
+      return {success,errors:this.errors,warnings:this.warnings,symbols:syms,segments,binary,origin,end,listing,listingText,symbolText:this.symbolText(syms),emittedBytes:emitted,addressSpan:origin===null?0:end-origin+1};
+    }
+
+    symbolText(symbols) {
+      return Object.entries(symbols).sort((a,b)=>a[1]-b[1]||a[0].localeCompare(b[0])).map(([n,v])=>`${(v&0xFFFF).toString(16).padStart(4,'0').toUpperCase()} ${n}`).join('\n')+'\n';
+    }
+  }
+
+  const api = {
+    Assembler6502,
+    OPCODES,
+    MODES,
+    UNDOCUMENTED,
+    version: '1.1.0'
+  };
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = api;
+  } else {
+    global.BBC6502Assembler = api;
+  }
+})(typeof window!=='undefined'?window:globalThis);
+
+</script>
+<script>
+/*
+ * BBC 6502 Web Assembler - browser UI
+ *
+ * This file is intentionally kept unminified and human-readable.
+ * The assembler core is in assembler.js.
+ */
+(function () {
+  'use strict';
+
+  const { Assembler6502, version } = window.BBC6502Assembler;
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  const editor = byId('editor');
+  const fileSelect = byId('fileSelect');
+  const dirtyIndicator = byId('dirty');
+  const openInput = byId('openInput');
+  const folderInput = byId('folderInput');
+
+  const assembleButton = byId('assembleBtn');
+  const saveBinaryButton = byId('saveBinBtn');
+  const saveListingButton = byId('saveListingBtn');
+  const saveSymbolsButton = byId('saveSymbolsBtn');
+
+  let files = new Map();
+  let currentFile = '';
+  let isDirty = false;
+  let lastResult = null;
+
+  const sample = `; BBC 6502 Web Assembler
+; Generic NMOS 6502 example
+
+OSWRCH = &FFEE
+ORG &1900
+
+start:
+    LDX #0
+.loop:
+    LDA message,X
+    BEQ done
+    JSR OSWRCH
+    INX
+    BNE .loop
+.done:
+    RTS
+
+message:
+    EQUS "HELLO FROM 6502!"
+    EQUB 13,10,0
+`;
+
+  function setDirty(value) {
+    isDirty = value;
+    dirtyIndicator.style.display = value ? 'inline' : 'none';
+  }
+
+  function syncCurrentFile() {
+    if (currentFile) {
+      files.set(currentFile, editor.value);
+    }
+    setDirty(false);
+  }
+
+  function baseName(path) {
+    return path.split(/[\\/]/).pop();
+  }
+
+  function stem(path) {
+    return baseName(path).replace(/\.[^.]*$/, '') || 'output';
+  }
+
+  function hex4(value) {
+    return '&' + (value >>> 0).toString(16).toUpperCase().padStart(4, '0');
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (character) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    })[character]);
+  }
+
+  function refreshFileSelect() {
+    fileSelect.innerHTML = '';
+
+    for (const name of files.keys()) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      fileSelect.appendChild(option);
+    }
+
+    if (currentFile && files.has(currentFile)) {
+      fileSelect.value = currentFile;
+    }
+  }
+
+  function selectFile(name) {
+    if (isDirty) {
+      syncCurrentFile();
+    }
+
+    currentFile = name;
+    editor.value = files.get(name) || '';
+    refreshFileSelect();
+    setDirty(false);
+    updateCursor();
+  }
+
+  function newSource() {
+    if (isDirty && !confirm('Discard unsaved editor changes?')) {
+      return;
+    }
+
+    files = new Map([['untitled.asm', sample]]);
+    currentFile = 'untitled.asm';
+    editor.value = sample;
+    refreshFileSelect();
+    setDirty(false);
+    lastResult = null;
+    renderResult(null);
+  }
+
+  async function loadFileList(fileList) {
+    if (!fileList.length) {
+      return;
+    }
+
+    const loadedFiles = new Map();
+
+    for (const file of fileList) {
+      const name = file.webkitRelativePath || file.name;
+      loadedFiles.set(name, await file.text());
+    }
+
+    files = loadedFiles;
+
+    const sourceFile = [...files.keys()].find((name) =>
+      /\.(asm|s|inc|6502|txt)$/i.test(name)
+    );
+
+    currentFile = sourceFile || [...files.keys()][0];
+    editor.value = files.get(currentFile);
+
+    refreshFileSelect();
+    setDirty(false);
+    lastResult = null;
+    renderResult(null);
+  }
+
+  function downloadBlob(data, name, type = 'application/octet-stream') {
+    const blob = data instanceof Blob ? data : new Blob([data], { type });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function saveSource() {
+    syncCurrentFile();
+
+    downloadBlob(
+      editor.value,
+      currentFile || 'source.asm',
+      'text/plain;charset=utf-8'
+    );
+  }
+
+  function saveSourceAs() {
+    // Save the current version under its existing project name first.
+    syncCurrentFile();
+
+    const suggestedName = currentFile || 'source.asm';
+    const requestedName = prompt('Save source as:', suggestedName);
+
+    if (requestedName === null) {
+      return;
+    }
+
+    const newName = requestedName.trim();
+
+    if (!newName) {
+      alert('Please enter a file name.');
+      return;
+    }
+
+    if (newName !== currentFile && files.has(newName)) {
+      const replace = confirm(
+        `A project file named "${newName}" already exists. Replace it?`
+      );
+
+      if (!replace) {
+        return;
+      }
+    }
+
+    // Save As creates/updates the new project entry while retaining the old one.
+    files.set(newName, editor.value);
+    currentFile = newName;
+    refreshFileSelect();
+    setDirty(false);
+
+    downloadBlob(
+      editor.value,
+      newName,
+      'text/plain;charset=utf-8'
+    );
+  }
+
+  async function sha256(bytes) {
+    if (!window.crypto || !window.crypto.subtle) {
+      return '';
+    }
+
+    const hash = await window.crypto.subtle.digest('SHA-256', bytes);
+
+    return [...new Uint8Array(hash)]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  async function assemble() {
+    if (!currentFile) {
+      return;
+    }
+
+    syncCurrentFile();
+
+    const fillText = byId('fillByte').value.replace(/^&|^\$/, '');
+    const fill = parseInt(fillText, 16);
+    const fillByte = Number.isFinite(fill) ? fill & 0xFF : 0;
+
+    const assembler = new Assembler6502({
+      allowUndocumented: byId('illegalOps').checked,
+      fillByte
+    });
+
+    const startTime = performance.now();
+    lastResult = assembler.assemble(currentFile, files);
+    const elapsedMs = performance.now() - startTime;
+
+    if (lastResult.success && lastResult.binary.length) {
+      lastResult.sha256 = await sha256(lastResult.binary);
+    }
+
+    lastResult.elapsedMs = elapsedMs;
+    renderResult(lastResult);
+    activateTab('buildTab');
+  }
+
+  function gotoLine(file, line) {
+    const key = [...files.keys()].find((candidate) =>
+      candidate === file || baseName(candidate) === baseName(file)
+    );
+
+    if (key && key !== currentFile) {
+      selectFile(key);
+    }
+
+    if (!line || key === undefined) {
+      return;
+    }
+
+    const text = editor.value;
+    let position = 0;
+
+    for (let currentLine = 1; currentLine < line; currentLine++) {
+      const nextNewline = text.indexOf('\n', position);
+      if (nextNewline < 0) {
+        break;
+      }
+      position = nextNewline + 1;
+    }
+
+    const end = text.indexOf('\n', position);
+    editor.focus();
+    editor.setSelectionRange(position, end < 0 ? text.length : end);
+
+    const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
+    editor.scrollTop = Math.max(0, (line - 5) * lineHeight);
+  }
+
+  function renderResult(result) {
+    saveBinaryButton.disabled = !result?.success;
+    saveListingButton.disabled = !result?.success;
+    saveSymbolsButton.disabled = !result?.success;
+
+    const buildContent = byId('buildContent');
+
+    if (!result) {
+      buildContent.innerHTML =
+        '<p style="color:var(--muted)">Load or edit a source file, then press <b>Assemble</b> (Ctrl+Enter).</p>';
+      byId('listingPre').textContent = '';
+      byId('segmentsBody').innerHTML = '';
+      renderSymbols(null);
+      return;
+    }
+
+    let html = '';
+
+    if (result.success) {
+      html += `
+        <div class="summary">
+          <div class="key">Status</div><div class="good">BUILD OK</div>
+          <div class="key">Origin</div><div>${hex4(result.origin)}</div>
+          <div class="key">End</div><div>${hex4(result.end)}</div>
+          <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
+          <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
+          <div class="key">Segments</div><div>${result.segments.length}</div>
+          <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
+          <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
+          ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
+        </div>`;
+    } else {
+      html += `
+        <div class="summary">
+          <div class="key">Status</div><div class="bad">BUILD FAILED</div>
+          <div class="key">Errors</div><div>${result.errors.length}</div>
+        </div>`;
+    }
+
+    for (const error of result.errors) {
+      html += `
+        <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
+          <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
+          ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
+        </div>`;
+    }
+
+    for (const warning of result.warnings) {
+      html += `
+        <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
+          <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
+        </div>`;
+    }
+
+    buildContent.innerHTML = html;
+
+    buildContent.querySelectorAll('.message').forEach((element) => {
+      element.addEventListener('click', () => {
+        gotoLine(element.dataset.file, Number(element.dataset.line));
+      });
+    });
+
+    byId('listingPre').textContent = result.listingText || '';
+    renderSegments(result);
+    renderSymbols(result);
+  }
+
+  function renderSegments(result) {
+    const body = byId('segmentsBody');
+    body.innerHTML = '';
+
+    if (!result?.success) {
+      return;
+    }
+
+    result.segments.forEach((segment, index) => {
+      const row = document.createElement('tr');
+      const segmentName = `${stem(currentFile)}_${segment.start.toString(16).padStart(4, '0')}_${segment.end.toString(16).padStart(4, '0')}.bin`;
+
+      row.innerHTML = `
+        <td>${index + 1}</td>
+        <td class="addr">${hex4(segment.start)}</td>
+        <td class="addr">${hex4(segment.end)}</td>
+        <td>${segment.bytes.length.toLocaleString()}</td>
+        <td class="segmentActions"><button>Save</button></td>`;
+
+      row.querySelector('button').onclick = () => {
+        downloadBlob(segment.bytes, segmentName);
+      };
+
+      body.appendChild(row);
+    });
+  }
+
+  function renderSymbols(result) {
+    const body = byId('symbolsBody');
+    body.innerHTML = '';
+
+    if (!result?.success) {
+      return;
+    }
+
+    const filter = byId('symbolFilter').value.toLowerCase();
+
+    Object.entries(result.symbols)
+      .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+      .filter(([name]) => !filter || name.toLowerCase().includes(filter))
+      .forEach(([name, value]) => {
+        const row = document.createElement('tr');
+        row.className = 'symbolRow';
+        row.innerHTML = `
+          <td class="addr">${hex4(value & 0xFFFF)}</td>
+          <td>${escapeHtml(name)}</td>`;
+        row.onclick = () => jumpToSymbol(name);
+        body.appendChild(row);
+      });
+  }
+
+  function jumpToSymbol(name) {
+    const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    for (const [file, text] of files) {
+      const patterns = [
+        new RegExp(`^\\s*${escapedName}\\s*:`, 'im'),
+        new RegExp(`^\\s*\\.${escapedName.replace(/^\\\./, '')}\\b`, 'im'),
+        new RegExp(`^\\s*${escapedName}\\s*=`, 'im')
+      ];
+
+      for (const pattern of patterns) {
+        const match = pattern.exec(text);
+        if (match) {
+          const line = text.slice(0, match.index).split(/\n/).length;
+          gotoLine(file, line);
+          return;
+        }
+      }
+    }
+  }
+
+  function saveBinary() {
+    if (!lastResult?.success) {
+      return;
+    }
+
+    downloadBlob(lastResult.binary, `${stem(currentFile)}.bin`);
+  }
+
+  function saveListing() {
+    if (!lastResult?.success) {
+      return;
+    }
+
+    downloadBlob(
+      lastResult.listingText,
+      `${stem(currentFile)}.lst`,
+      'text/plain;charset=utf-8'
+    );
+  }
+
+  function saveSymbols() {
+    if (!lastResult?.success) {
+      return;
+    }
+
+    downloadBlob(
+      lastResult.symbolText,
+      `${stem(currentFile)}.map`,
+      'text/plain;charset=utf-8'
+    );
+  }
+
+  function activateTab(id) {
+    document.querySelectorAll('.tab').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.target === id);
+    });
+
+    document.querySelectorAll('.tabContent').forEach((content) => {
+      content.classList.toggle('active', content.id === id);
+    });
+  }
+
+  function updateCursor() {
+    const position = editor.selectionStart;
+    const beforeCursor = editor.value.slice(0, position);
+    const lines = beforeCursor.split('\n');
+
+    byId('cursorPos').textContent =
+      `Ln ${lines.length}, Col ${lines.at(-1).length + 1}`;
+
+    byId('sourceStats').textContent =
+      `${editor.value.split('\n').length.toLocaleString()} lines  ` +
+      `${editor.value.length.toLocaleString()} chars`;
+  }
+
+  // Toolbar actions.
+  byId('newBtn').onclick = newSource;
+  byId('openBtn').onclick = () => openInput.click();
+  byId('folderBtn').onclick = () => folderInput.click();
+  byId('saveSourceBtn').onclick = saveSource;
+  byId('saveSourceAsBtn').onclick = saveSourceAs;
+  assembleButton.onclick = assemble;
+  saveBinaryButton.onclick = saveBinary;
+  saveListingButton.onclick = saveListing;
+  saveSymbolsButton.onclick = saveSymbols;
+
+  // Source/project loading.
+  openInput.onchange = (event) => loadFileList([...event.target.files]);
+  folderInput.onchange = (event) => loadFileList([...event.target.files]);
+  fileSelect.onchange = () => selectFile(fileSelect.value);
+
+  // Editor state.
+  editor.addEventListener('input', () => {
+    setDirty(true);
+    updateCursor();
+  });
+  editor.addEventListener('click', updateCursor);
+  editor.addEventListener('keyup', updateCursor);
+
+  // Results UI.
+  byId('symbolFilter').oninput = () => renderSymbols(lastResult);
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.onclick = () => activateTab(tab.dataset.target);
+  });
+
+  // Help dialog.
+  byId('helpBtn').onclick = () => byId('helpDialog').showModal();
+  byId('closeHelp').onclick = () => byId('helpDialog').close();
+
+  // Keyboard shortcuts.
+  window.addEventListener('keydown', (event) => {
+    const commandKey = event.ctrlKey || event.metaKey;
+
+    if (commandKey && event.key === 'Enter') {
+      event.preventDefault();
+      assemble();
+      return;
+    }
+
+    if (commandKey && event.shiftKey && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      saveSourceAs();
+      return;
+    }
+
+    if (commandKey && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      saveSource();
+    }
+  });
+
+  window.addEventListener('beforeunload', (event) => {
+    if (isDirty) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  });
+
+  // Drag-and-drop source/project loading.
+  let dragDepth = 0;
+
+  window.addEventListener('dragenter', (event) => {
+    event.preventDefault();
+    dragDepth++;
+    byId('dropHint').classList.add('show');
+  });
+
+  window.addEventListener('dragover', (event) => {
+    event.preventDefault();
+  });
+
+  window.addEventListener('dragleave', (event) => {
+    event.preventDefault();
+    dragDepth--;
+
+    if (dragDepth <= 0) {
+      dragDepth = 0;
+      byId('dropHint').classList.remove('show');
+    }
+  });
+
+  window.addEventListener('drop', (event) => {
+    event.preventDefault();
+    dragDepth = 0;
+    byId('dropHint').classList.remove('show');
+
+    if (event.dataTransfer.files.length) {
+      loadFileList([...event.dataTransfer.files]);
+    }
+  });
+
+  byId('version').textContent = 'assembler ' + version;
+  newSource();
+})();
+
+</script>
+</body>
+</html>
