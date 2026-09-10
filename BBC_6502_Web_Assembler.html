@@ -134,7 +134,7 @@ message:
     <p><b>Labels:</b> <code>name:</code> and BBC/BeebAsm-style <code>.name</code> are accepted. Constants may use <code>name = expression</code> or <code>name EQU expression</code>.</p>
     <p><b>Address-size control:</b> a literal written with four or more hex digits, e.g. <code>LDA &00F0</code>, forces absolute addressing where available. You can also write <code>LDA.ABS symbol</code> or <code>LDA.ZP symbol</code>. This matters when reproducing exact binaries.</p>
     <p><b>Undocumented NMOS opcodes:</b> common forms are supported, including <code>SLO RLA SRE RRA SAX LAX DCP ISC ANC ALR ARR AXS LAS AHX SHY SHX TAS</code>. The assembler's <code>NOP abs,X</code> form uses opcode <code>&DC</code>; exact alternative illegal encodings can always be emitted with <code>EQUB</code>. Disable undocumented opcodes using the toolbar checkbox.</p>
-    <p><b>Origin:</b> if the source contains no <code>ORG</code>, the toolbar origin is used. This makes a source file relocatable without embedding an assembly address. An explicit <code>ORG</code> in the source takes precedence.</p>
+    <p><b>Origin:</b> if the source contains no <code>ORG</code>, the toolbar origin is used. This makes a source file relocatable without embedding an assembly address. An explicit <code>ORG</code> in the source takes precedence. A relocatable source may optionally contain a comment such as <code>; @default-origin &amp;1900</code>; when that file is loaded the value is copied into the Origin field, but it remains user-editable and is not an assembly directive.</p>
     <p><b>Multiple ORGs:</b> emitted ranges are shown as separate segments. “Save binary” creates one flat file from the lowest to highest emitted address and fills gaps with the selected fill byte. Each individual segment can also be downloaded from the Segments tab.</p>
   </div>
 </dialog>
@@ -673,7 +673,7 @@ message:
     OPCODES,
     MODES,
     UNDOCUMENTED,
-    version: '1.2.0'
+    version: '1.3.0'
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -793,6 +793,47 @@ message:
     return number & 0xFFFF;
   }
 
+
+  // -------------------------------------------------------------------------
+  // Optional source metadata
+  // -------------------------------------------------------------------------
+  //
+  // A relocatable source may advertise a convenient default assembly origin
+  // without embedding an ORG directive:
+  //
+  //     ; @default-origin &1900
+  //
+  // This is deliberately only a comment. It changes the toolbar's suggested
+  // Origin when the source is loaded/selected, but it does not participate in
+  // assembly. The user remains free to change the Origin field before building.
+  function sourceDefaultOrigin(text) {
+    const match = String(text || '').match(
+      /^\s*;\s*@default-origin\s+(\&[0-9a-f]+|\$[0-9a-f]+|[0-9a-f]{3,4})\s*(?:;.*)?$/im
+    );
+
+    if (!match) {
+      return null;
+    }
+
+    try {
+      return parseNumericAddress(match[1]);
+    } catch (error) {
+      console.warn('Ignoring invalid @default-origin metadata:', error.message);
+      return null;
+    }
+  }
+
+  function applySourceMetadata(text) {
+    const defaultOrigin = sourceDefaultOrigin(text);
+
+    if (defaultOrigin !== null) {
+      byId('originAddress').value = defaultOrigin
+        .toString(16)
+        .toUpperCase()
+        .padStart(4, '0');
+    }
+  }
+
   function resolveEntryPoint(text, result) {
     const value = String(text || '').trim();
 
@@ -843,6 +884,7 @@ message:
 
     currentFile = name;
     editor.value = files.get(name) || '';
+    applySourceMetadata(editor.value);
     refreshFileSelect();
     setDirty(false);
     updateCursor();
@@ -882,6 +924,7 @@ message:
 
     currentFile = sourceFile || [...files.keys()][0];
     editor.value = files.get(currentFile);
+    applySourceMetadata(editor.value);
 
     refreshFileSelect();
     setDirty(false);
