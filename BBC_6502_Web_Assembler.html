@@ -25,7 +25,7 @@ button.primary:hover{background:#2b70b8}
 button:disabled{opacity:.45;cursor:not-allowed}
 .toolbar .spacer{flex:1}
 .option{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px}
-.option input[type=text]{width:44px;padding:4px 5px;font-family:var(--mono);text-align:center}
+.option input[type=text]{width:54px;padding:4px 5px;font-family:var(--mono);text-align:center}
 #workspace{flex:1;min-height:0;display:grid;grid-template-columns:minmax(440px, 1fr) minmax(330px, .55fr)}
 .editorPane{min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--border)}
 .filebar{height:36px;padding:5px 8px;display:flex;align-items:center;gap:8px;background:var(--panel2);border-bottom:1px solid var(--border)}
@@ -57,6 +57,10 @@ th{position:sticky;top:0;background:var(--panel);color:var(--muted);font-weight:
 .symbolRow{cursor:pointer}.symbolRow:hover td{background:#202730}
 dialog{max-width:760px;width:90vw;background:#171b21;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:0;box-shadow:0 20px 70px #0008}
 dialog::backdrop{background:#0009}.dialogHead{display:flex;justify-content:space-between;align-items:center;padding:12px 15px;border-bottom:1px solid var(--border)}.dialogBody{padding:14px 18px;max-height:70vh;overflow:auto;font-size:13px;line-height:1.5}.dialogBody code,.dialogBody pre{font-family:var(--mono)}.dialogBody pre{background:#0e1115;border:1px solid var(--border);padding:10px;border-radius:5px;overflow:auto}.closeBtn{font-size:18px;padding:2px 8px}
+.formGrid{display:grid;grid-template-columns:180px 1fr;gap:10px 12px;align-items:center}
+.formGrid input{font-family:var(--mono);width:100%;cursor:text}
+.formGrid .hint{grid-column:2;color:var(--muted);font-size:12px;margin-top:-7px}
+.dialogActions{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--border)}
 .dropHint{display:none;position:fixed;inset:20px;border:2px dashed var(--accent);background:#0b2b4ed9;z-index:99;align-items:center;justify-content:center;font-size:24px;font-weight:650;border-radius:12px}
 .dropHint.show{display:flex}
 @media(max-width:900px){#workspace{grid-template-columns:1fr;grid-template-rows:58% 42%}.editorPane{border-right:0;border-bottom:1px solid var(--border)}header h1{font-size:15px}.toolbar{gap:5px}}
@@ -73,9 +77,11 @@ dialog::backdrop{background:#0009}.dialogHead{display:flex;justify-content:space
   <button id="saveSourceAsBtn">Save As…</button>
   <button class="primary" id="assembleBtn">Assemble</button>
   <button id="saveBinBtn" disabled>Save binary</button>
+  <button id="saveDiskBtn" disabled>Save boot disk…</button>
   <button id="saveListingBtn" disabled>Save listing</button>
   <button id="saveSymbolsBtn" disabled>Save symbols</button>
   <span class="spacer"></span>
+  <label class="option">origin <input id="originAddress" type="text" value="1900" maxlength="5" title="Default assembly origin used when the source contains no ORG directive"></label>
   <label class="option"><input id="illegalOps" type="checkbox" checked> undocumented NMOS opcodes</label>
   <label class="option">gap fill <input id="fillByte" type="text" value="00" maxlength="2"></label>
   <button id="helpBtn">Syntax help</button>
@@ -127,9 +133,27 @@ message:
     <p><b>Directives:</b> <code>ORG</code>, <code>EQUB/.BYTE/DB</code>, <code>EQUW/.WORD/DW</code>, <code>EQUD/.DWORD/DD</code>, <code>EQUS/.TEXT</code>, <code>SKIP/DS/RES</code>, <code>FILL</code>, <code>ALIGN</code>, <code>ASSERT</code>, and <code>INCLUDE "file.asm"</code>.</p>
     <p><b>Labels:</b> <code>name:</code> and BBC/BeebAsm-style <code>.name</code> are accepted. Constants may use <code>name = expression</code> or <code>name EQU expression</code>.</p>
     <p><b>Address-size control:</b> a literal written with four or more hex digits, e.g. <code>LDA &00F0</code>, forces absolute addressing where available. You can also write <code>LDA.ABS symbol</code> or <code>LDA.ZP symbol</code>. This matters when reproducing exact binaries.</p>
-    <p><b>Undocumented NMOS opcodes:</b> common stable forms are supported, including <code>SLO RLA SRE RRA SAX LAX DCP ISC ANC ALR ARR AXS LAS AHX SHY SHX TAS</code>. Zalaga's undocumented <code>NOP abs,X</code> uses opcode <code>&DC</code>. Disable illegal opcodes using the toolbar checkbox.</p>
+    <p><b>Undocumented NMOS opcodes:</b> common forms are supported, including <code>SLO RLA SRE RRA SAX LAX DCP ISC ANC ALR ARR AXS LAS AHX SHY SHX TAS</code>. The assembler's <code>NOP abs,X</code> form uses opcode <code>&DC</code>; exact alternative illegal encodings can always be emitted with <code>EQUB</code>. Disable undocumented opcodes using the toolbar checkbox.</p>
+    <p><b>Origin:</b> if the source contains no <code>ORG</code>, the toolbar origin is used. This makes a source file relocatable without embedding an assembly address. An explicit <code>ORG</code> in the source takes precedence.</p>
     <p><b>Multiple ORGs:</b> emitted ranges are shown as separate segments. “Save binary” creates one flat file from the lowest to highest emitted address and fills gaps with the selected fill byte. Each individual segment can also be downloaded from the Segments tab.</p>
   </div>
+</dialog>
+<dialog id="bootDialog">
+  <div class="dialogHead"><strong>Create bootable BBC DFS disk</strong><button class="closeBtn" id="closeBoot">×</button></div>
+  <div class="dialogBody">
+    <p>The generated SSD contains <code>!BOOT</code> and one tokenised BBC BASIC program. The compiled machine code is appended directly after the BASIC program. The loader copies a small overlap-safe mover to high RAM, relocates the binary to its assembled origin, and jumps to the selected entry point.</p>
+    <div class="formGrid">
+      <label for="diskTitle">Disk title</label><input id="diskTitle" type="text" maxlength="12" value="6502 PROGRAM">
+      <label for="programName">BASIC program name</label><input id="programName" type="text" maxlength="7" value="PROGRAM">
+      <div class="hint">DFS filenames are limited to seven characters. Shift-Break boots this file; it can also be run with <code>CHAIN "name"</code>.</div>
+      <label>Run address</label><input id="bootOrigin" type="text" readonly>
+      <div class="hint">Taken from the lowest assembled address. Reassemble at a different toolbar origin to change it.</div>
+      <label for="entryPoint">Entry point</label><input id="entryPoint" type="text" value="start" placeholder="symbol or address">
+      <div class="hint">May be a source symbol or a hexadecimal/decimal address.</div>
+    </div>
+    <p id="bootWarning" class="warn"></p>
+  </div>
+  <div class="dialogActions"><button id="cancelBoot">Cancel</button><button class="primary" id="createBootDisk">Create SSD</button></div>
 </dialog>
 <script>
 /*
@@ -159,8 +183,8 @@ message:
   const BRANCHES = new Set(['BCC','BCS','BEQ','BMI','BNE','BPL','BVC','BVS']);
 
   // Official NMOS 6502 instruction set plus a useful set of stable undocumented
-  // instructions. NOP absx deliberately uses &DC because Zalaga uses that exact
-  // undocumented encoding. Exact alternative illegal encodings can always be
+  // instructions. NOP absx deliberately uses the common &DC encoding. Exact
+  // alternative illegal encodings can always be
   // emitted with EQUB/.BYTE.
   const OPCODES = {};
   function add(op, entries) {
@@ -380,7 +404,7 @@ message:
 
   class Assembler6502 {
     constructor(options={}) {
-      this.options=Object.assign({allowUndocumented:true,fillByte:0x00},options);
+      this.options=Object.assign({allowUndocumented:true,fillByte:0x00,defaultOrigin:0x0000},options);
       this.symbols=new Map(); this.symbolNames=new Map(); this.errors=[]; this.warnings=[];
       this.expanded=[]; this.records=[]; this.pendingAssignments=[];
     }
@@ -481,7 +505,7 @@ message:
     }
 
     firstPass() {
-      let pc=0, haveOrg=false; this.records=[]; this.pendingAssignments=[];
+      let pc=this.options.defaultOrigin & 0xFFFF, haveOrg=false; this.records=[]; this.pendingAssignments=[];
       for(const info of this.expanded) {
         const parsed=this.parseLabelAndCode(info.text); let code=parsed.code;
         if(parsed.label) this.setSymbol(parsed.label,pc,info,'label');
@@ -567,7 +591,7 @@ message:
         this.pendingAssignments=next;
       }
       for(const a of this.pendingAssignments) this.error(a.info,`Could not resolve assignment ${a.name} = ${a.expr}`,'pass1');
-      if(!haveOrg) this.warn(null,'No ORG directive found; assembly begins at &0000.');
+      if(!haveOrg) this.warn(null,`No ORG directive found; using toolbar/default origin &${(this.options.defaultOrigin&0xFFFF).toString(16).padStart(4,'0').toUpperCase()}.`);
     }
 
     assemble(mainName,files) {
@@ -649,7 +673,7 @@ message:
     OPCODES,
     MODES,
     UNDOCUMENTED,
-    version: '1.1.0'
+    version: '1.2.0'
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -665,7 +689,7 @@ message:
  * BBC 6502 Web Assembler - browser UI
  *
  * This file is intentionally kept unminified and human-readable.
- * The assembler core is in assembler.js.
+ * The assembler core is embedded above in this same self-contained HTML file.
  */
 (function () {
   'use strict';
@@ -684,6 +708,7 @@ message:
 
   const assembleButton = byId('assembleBtn');
   const saveBinaryButton = byId('saveBinBtn');
+  const saveDiskButton = byId('saveDiskBtn');
   const saveListingButton = byId('saveListingBtn');
   const saveSymbolsButton = byId('saveSymbolsBtn');
 
@@ -736,6 +761,54 @@ message:
 
   function hex4(value) {
     return '&' + (value >>> 0).toString(16).toUpperCase().padStart(4, '0');
+  }
+
+
+  function parseNumericAddress(text) {
+    const value = String(text || '').trim();
+
+    if (!value) {
+      throw new Error('Address is empty.');
+    }
+
+    let number;
+
+    if (/^&[0-9a-f]+$/i.test(value)) {
+      number = parseInt(value.slice(1), 16);
+    } else if (/^\$[0-9a-f]+$/i.test(value)) {
+      number = parseInt(value.slice(1), 16);
+    } else if (/^[0-9a-f]{3,4}$/i.test(value)) {
+      // Address fields are normally entered as bare hexadecimal (e.g. 1900).
+      number = parseInt(value, 16);
+    } else if (/^\d+$/.test(value)) {
+      number = parseInt(value, 10);
+    } else {
+      throw new Error(`Bad address '${value}'.`);
+    }
+
+    if (!Number.isFinite(number) || number < 0 || number > 0xFFFF) {
+      throw new Error(`Address '${value}' is outside the 16-bit address space.`);
+    }
+
+    return number & 0xFFFF;
+  }
+
+  function resolveEntryPoint(text, result) {
+    const value = String(text || '').trim();
+
+    if (!value) {
+      return result.origin;
+    }
+
+    const match = Object.entries(result.symbols).find(
+      ([name]) => name.toLowerCase() === value.toLowerCase()
+    );
+
+    if (match) {
+      return match[1] & 0xFFFF;
+    }
+
+    return parseNumericAddress(value);
   }
 
   function escapeHtml(value) {
@@ -904,9 +977,25 @@ message:
     const fill = parseInt(fillText, 16);
     const fillByte = Number.isFinite(fill) ? fill & 0xFF : 0;
 
+    let defaultOrigin;
+
+    try {
+      defaultOrigin = parseNumericAddress(byId('originAddress').value);
+    } catch (error) {
+      lastResult = {
+        success: false,
+        errors: [{phase: 'options', message: error.message, file: currentFile, line: 0, text: ''}],
+        warnings: [], symbols: {}, segments: [], binary: new Uint8Array(0), origin: null, end: null,
+        listingText: '', symbolText: '', emittedBytes: 0, addressSpan: 0, elapsedMs: 0
+      };
+      renderResult(lastResult);
+      return;
+    }
+
     const assembler = new Assembler6502({
       allowUndocumented: byId('illegalOps').checked,
-      fillByte
+      fillByte,
+      defaultOrigin
     });
 
     const startTime = performance.now();
@@ -956,6 +1045,7 @@ message:
 
   function renderResult(result) {
     saveBinaryButton.disabled = !result?.success;
+    saveDiskButton.disabled = !result?.success;
     saveListingButton.disabled = !result?.success;
     saveSymbolsButton.disabled = !result?.success;
 
@@ -1101,6 +1191,300 @@ message:
     downloadBlob(lastResult.binary, `${stem(currentFile)}.bin`);
   }
 
+
+  // -------------------------------------------------------------------------
+  // Bootable DFS SSD generation
+  // -------------------------------------------------------------------------
+
+  const MOVER_ADDRESS = 0x7AE0;
+  const MOVER_END = 0x7BF4;
+  const MOVER_SOURCE_OFFSET = 261;
+  const MOVER_DESTINATION_OFFSET = 265;
+  const MOVER_LENGTH_OFFSET = 269;
+  const MOVER_ENTRY_OFFSET = 273;
+
+  // Overlap-safe NMOS 6502 memmove. It is copied by the BASIC loader to
+  // &7AE0-&7BF4, immediately below the standard MODE 7 screen at &7C00.
+  // The four parameter slots are 32-bit wide only so BASIC can patch them
+  // conveniently with ! indirection; the mover uses their low 16 bits.
+  const MOVER_BYTES = Uint8Array.from([
+    0x78,0xD8,0xAD,0xED,0x7B,0x0D,0xEE,0x7B,0xD0,0x03,0x4C,0xD4,0x7B,0xAD,0xEA,0x7B,
+    0xCD,0xE6,0x7B,0xB0,0x03,0x4C,0x84,0x7B,0xD0,0x10,0xAD,0xE9,0x7B,0xCD,0xE5,0x7B,
+    0xB0,0x03,0x4C,0x84,0x7B,0xD0,0x03,0x4C,0xD4,0x7B,0xAD,0xED,0x7B,0x8D,0xE3,0x7B,
+    0xAD,0xEE,0x7B,0x8D,0xE4,0x7B,0x18,0xAD,0xE5,0x7B,0x6D,0xED,0x7B,0x8D,0x53,0x7B,
+    0xAD,0xE6,0x7B,0x6D,0xEE,0x7B,0x8D,0x54,0x7B,0xAD,0x53,0x7B,0xD0,0x03,0xCE,0x54,
+    0x7B,0xCE,0x53,0x7B,0x18,0xAD,0xE9,0x7B,0x6D,0xED,0x7B,0x8D,0x56,0x7B,0xAD,0xEA,
+    0x7B,0x6D,0xEE,0x7B,0x8D,0x57,0x7B,0xAD,0x56,0x7B,0xD0,0x03,0xCE,0x57,0x7B,0xCE,
+    0x56,0x7B,0xAD,0xFF,0xFF,0x8D,0xFF,0xFF,0xAD,0xE3,0x7B,0xD0,0x03,0xCE,0xE4,0x7B,
+    0xCE,0xE3,0x7B,0xAD,0xE3,0x7B,0x0D,0xE4,0x7B,0xF0,0x69,0xAD,0x53,0x7B,0xD0,0x03,
+    0xCE,0x54,0x7B,0xCE,0x53,0x7B,0xAD,0x56,0x7B,0xD0,0x03,0xCE,0x57,0x7B,0xCE,0x56,
+    0x7B,0x4C,0x52,0x7B,0xAD,0xED,0x7B,0x8D,0xE3,0x7B,0xAD,0xEE,0x7B,0x8D,0xE4,0x7B,
+    0xAD,0xE5,0x7B,0x8D,0xA9,0x7B,0xAD,0xE6,0x7B,0x8D,0xAA,0x7B,0xAD,0xE9,0x7B,0x8D,
+    0xAC,0x7B,0xAD,0xEA,0x7B,0x8D,0xAD,0x7B,0xAD,0xFF,0xFF,0x8D,0xFF,0xFF,0xAD,0xE3,
+    0x7B,0xD0,0x03,0xCE,0xE4,0x7B,0xCE,0xE3,0x7B,0xAD,0xE3,0x7B,0x0D,0xE4,0x7B,0xF0,
+    0x13,0xEE,0xA9,0x7B,0xD0,0x03,0xEE,0xAA,0x7B,0xEE,0xAC,0x7B,0xD0,0x03,0xEE,0xAD,
+    0x7B,0x4C,0xA8,0x7B,0xAD,0xF1,0x7B,0x8D,0xE1,0x7B,0xAD,0xF2,0x7B,0x8D,0xE2,0x7B,
+    0x4C,0xFF,0xFF,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00
+  ]);
+
+  const BASIC_TOKENS = Object.freeze({
+    TO: 0xB8,
+    HIMEM_LEFT: 0xD3,
+    CALL: 0xD6,
+    DATA: 0xDC,
+    FOR: 0xE3,
+    MODE: 0xEB,
+    NEXT: 0xED,
+    READ: 0xF3
+  });
+
+  function asciiBytes(text) {
+    return Array.from(String(text), (character) => character.charCodeAt(0) & 0xFF);
+  }
+
+  function basicLine(number, body) {
+    const length = body.length + 4;
+
+    if (length > 255) {
+      throw new Error(`Generated BASIC line ${number} is too long.`);
+    }
+
+    return [
+      (number >> 8) & 0xFF,
+      number & 0xFF,
+      length,
+      ...body,
+      0x0D
+    ];
+  }
+
+  function makeBasicLoader(destination, entryPoint, binaryLength) {
+    const T = BASIC_TOKENS;
+    const output = [0x0D];
+
+    const addLine = (number, body) => {
+      output.push(...basicLine(number, body));
+    };
+
+    // 10 MODE 7
+    addLine(10, [T.MODE, ...asciiBytes(' 7')]);
+
+    // 20 HIMEM=&7AE0
+    addLine(20, [T.HIMEM_LEFT, ...asciiBytes('=&7AE0')]);
+
+    // 30 S%=TOP:M%=&7AE0  (TOP is represented by token TO followed by 'P')
+    addLine(30, [
+      ...asciiBytes('S%='), T.TO, 'P'.charCodeAt(0),
+      ...asciiBytes(':M%=&7AE0')
+    ]);
+
+    // 40 FOR I%=0 TO 276:READ B%:M%?I%=B%:NEXT
+    addLine(40, [
+      T.FOR, ...asciiBytes(' I%=0 '), T.TO,
+      ...asciiBytes(` ${MOVER_BYTES.length - 1}:`),
+      T.READ, ...asciiBytes(' B%:M%?I%=B%:'), T.NEXT
+    ]);
+
+    // Patch the 32-bit parameter slots. The mover consumes the low 16 bits.
+    addLine(50, asciiBytes(
+      `M%!${MOVER_SOURCE_OFFSET}=S%:` +
+      `M%!${MOVER_DESTINATION_OFFSET}=&${destination.toString(16).toUpperCase()}:` +
+      `M%!${MOVER_LENGTH_OFFSET}=&${binaryLength.toString(16).toUpperCase()}:` +
+      `M%!${MOVER_ENTRY_OFFSET}=&${entryPoint.toString(16).toUpperCase()}`
+    ));
+
+    // 60 CALL M% -- this intentionally never returns; the mover JMPs to the game.
+    addLine(60, [T.CALL, ...asciiBytes(' M%')]);
+
+    // DATA statements contain the mover itself. DATA's payload is deliberately
+    // left as ASCII because BASIC does not tokenise the contents of DATA.
+    let lineNumber = 100;
+    const bytesPerDataLine = 18;
+
+    for (let i = 0; i < MOVER_BYTES.length; i += bytesPerDataLine) {
+      const chunk = Array.from(MOVER_BYTES.slice(i, i + bytesPerDataLine));
+      addLine(lineNumber, [T.DATA, ...asciiBytes(' ' + chunk.join(','))]);
+      lineNumber += 10;
+    }
+
+    // A saved BBC BASIC program ends with &FF. Machine code may legally follow
+    // it in the same file; TOP points at the first byte after this terminator.
+    output.push(0xFF);
+
+    return Uint8Array.from(output);
+  }
+
+  function dfsCatalogueInfo(loadAddress, execAddress, length, startSector) {
+    const load = loadAddress & 0x3FFFF;
+    const exec = execAddress & 0x3FFFF;
+    const high =
+      (((load >> 16) & 3) << 2) |
+      (((exec >> 16) & 3) << 6) |
+      (((length >> 16) & 3) << 4) |
+      ((startSector >> 8) & 3);
+
+    return Uint8Array.from([
+      load & 0xFF,
+      (load >> 8) & 0xFF,
+      exec & 0xFF,
+      (exec >> 8) & 0xFF,
+      length & 0xFF,
+      (length >> 8) & 0xFF,
+      high,
+      startSector & 0xFF
+    ]);
+  }
+
+  function buildDfsSsd(result, options) {
+    if (!result?.success || !result.binary.length) {
+      throw new Error('Assemble the source successfully before creating a disk.');
+    }
+
+    const destination = result.origin;
+    const end = destination + result.binary.length - 1;
+    const entryPoint = options.entryPoint;
+
+    if (end > 0x7FFF) {
+      throw new Error(
+        `The compiled image ends at ${hex4(end)}. This BASIC loader is for BBC main RAM and requires the image to end at or below &7FFF.`
+      );
+    }
+
+    if (!(entryPoint >= destination && entryPoint <= end)) {
+      throw new Error(
+        `Entry point ${hex4(entryPoint)} is outside the compiled image ${hex4(destination)}-${hex4(end)}.`
+      );
+    }
+
+    if (!(end < MOVER_ADDRESS || destination > MOVER_END)) {
+      throw new Error(
+        `The destination range overlaps the loader mover at ${hex4(MOVER_ADDRESS)}-${hex4(MOVER_END)}.`
+      );
+    }
+
+    const basic = makeBasicLoader(destination, entryPoint, result.binary.length);
+    const program = new Uint8Array(basic.length + result.binary.length);
+    program.set(basic, 0);
+    program.set(result.binary, basic.length);
+
+    // On a standard BBC B + DFS the BASIC program is loaded at PAGE=&1900.
+    // Refuse files large enough to run into the mover before relocation begins.
+    const standardPage = 0x1900;
+    if (standardPage + program.length > MOVER_ADDRESS) {
+      throw new Error(
+        `BASIC loader + binary is too large for the standard DFS PAGE=&1900 layout (file ${program.length} bytes).`
+      );
+    }
+
+    const sectors = 800;
+    const image = new Uint8Array(sectors * 256);
+    const title = options.diskTitle.padEnd(12, ' ').slice(0, 12);
+    const titleBytes = asciiBytes(title);
+    image.set(titleBytes.slice(0, 8), 0);
+    image.set(titleBytes.slice(8, 12), 256);
+    image[260] = 0;
+    image[262] = (3 << 4) | ((sectors >> 8) & 3); // *OPT 4,3: *EXEC !BOOT
+    image[263] = sectors & 0xFF;
+
+    const bootText = `*BASIC\rCHAIN "${options.programName}"\r`;
+    const boot = Uint8Array.from(asciiBytes(bootText));
+    const filesToWrite = [];
+    let nextSector = 2;
+
+    const addFile = (name, bytes, load, exec) => {
+      const startSector = nextSector;
+      filesToWrite.push({name, bytes, load, exec, startSector});
+      nextSector += Math.ceil(bytes.length / 256);
+    };
+
+    addFile('!BOOT', boot, 0x0000, 0x0000);
+    addFile(options.programName, program, 0x1900, 0x1900);
+
+    if (nextSector > sectors) {
+      throw new Error('Generated files do not fit on a 200 KB DFS disk.');
+    }
+
+    image[261] = filesToWrite.length * 8;
+
+    filesToWrite.forEach((file, index) => {
+      const catalogueOffset = 8 + index * 8;
+      const name = file.name.toUpperCase().slice(0, 7).padEnd(7, ' ');
+      image.set(asciiBytes(name), catalogueOffset);
+      image[catalogueOffset + 7] = '$'.charCodeAt(0);
+
+      image.set(
+        dfsCatalogueInfo(file.load, file.exec, file.bytes.length, file.startSector),
+        256 + catalogueOffset
+      );
+
+      image.set(file.bytes, file.startSector * 256);
+    });
+
+    return {
+      image,
+      basicBytes: basic.length,
+      programBytes: program.length,
+      binaryOffset: basic.length,
+      destination,
+      end,
+      entryPoint
+    };
+  }
+
+  function suggestedEntrySymbol(result) {
+    const preferred = ['GameEntry', 'start', '_start', 'entry', 'main'];
+
+    for (const wanted of preferred) {
+      const found = Object.keys(result.symbols).find(
+        (name) => name.toLowerCase() === wanted.toLowerCase()
+      );
+      if (found) {
+        return found;
+      }
+    }
+
+    return hex4(result.origin);
+  }
+
+  function openBootDialog() {
+    if (!lastResult?.success) {
+      return;
+    }
+
+    byId('diskTitle').value = stem(currentFile).toUpperCase().slice(0, 12) || '6502 PROGRAM';
+    byId('programName').value = stem(currentFile).replace(/[^A-Za-z0-9!_-]/g, '').toUpperCase().slice(0, 7) || 'PROGRAM';
+    byId('bootOrigin').value = hex4(lastResult.origin);
+    byId('entryPoint').value = suggestedEntrySymbol(lastResult);
+    byId('bootWarning').textContent =
+      `The temporary mover occupies ${hex4(MOVER_ADDRESS)}-${hex4(MOVER_END)}. The compiled destination must not overlap it.`;
+    byId('bootDialog').showModal();
+  }
+
+  function createBootDisk() {
+    try {
+      const diskTitle = byId('diskTitle').value.toUpperCase().replace(/[^ -~]/g, '').slice(0, 12) || '6502 PROGRAM';
+      const programName = byId('programName').value.toUpperCase().replace(/[^A-Z0-9!_-]/g, '').slice(0, 7);
+
+      if (!programName) {
+        throw new Error('Enter a valid DFS program filename.');
+      }
+
+      const entryPoint = resolveEntryPoint(byId('entryPoint').value, lastResult);
+      const disk = buildDfsSsd(lastResult, {diskTitle, programName, entryPoint});
+
+      downloadBlob(
+        disk.image,
+        `${stem(currentFile)}.ssd`,
+        'application/octet-stream'
+      );
+
+      byId('bootDialog').close();
+    } catch (error) {
+      byId('bootWarning').textContent = error.message;
+    }
+  }
+
   function saveListing() {
     if (!lastResult?.success) {
       return;
@@ -1156,6 +1540,7 @@ message:
   byId('saveSourceAsBtn').onclick = saveSourceAs;
   assembleButton.onclick = assemble;
   saveBinaryButton.onclick = saveBinary;
+  saveDiskButton.onclick = openBootDialog;
   saveListingButton.onclick = saveListing;
   saveSymbolsButton.onclick = saveSymbols;
 
@@ -1181,6 +1566,9 @@ message:
   // Help dialog.
   byId('helpBtn').onclick = () => byId('helpDialog').showModal();
   byId('closeHelp').onclick = () => byId('helpDialog').close();
+  byId('closeBoot').onclick = () => byId('bootDialog').close();
+  byId('cancelBoot').onclick = () => byId('bootDialog').close();
+  byId('createBootDisk').onclick = createBootDisk;
 
   // Keyboard shortcuts.
   window.addEventListener('keydown', (event) => {
