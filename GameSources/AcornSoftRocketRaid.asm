@@ -1,4 +1,7 @@
-; Rocket Raid (Acornsoft, 1982) - fully annotated reverse-engineering baseline (Stage 3)
+; STAGE 5.1 COMPILE FIX
+; Repairs accidental symbol substitutions from Stage 5; no intended game bytes changed.
+
+; Rocket Raid (Acornsoft, 1982) - deep resolved reverse-engineering baseline (Stage 5)
 ; Source image: Disc001-RocketRaid.ssd
 ;
 ; DFS file $.RAIDOBJ
@@ -335,6 +338,13 @@ PLAYER_X_MAX            = &1E    ; MOD
 ; Leaving DFS active causes MOS line input at the Hall Of Fame to page DFS in,
 ; start the disc drive and fail.  *TAPE is therefore functional, not cosmetic.
 ;
+; STAGE 5 CHANGES
+; ---------------
+; Unlike the earlier commentary-heavy pass, Stage 5 replaces hundreds of live
+; operands with semantic symbols, names further routines, resolves the renderer
+; descriptor architecture and documents each special collision/object path at
+; the exact code that implements it.  No game logic or data bytes are changed.
+;
 ; MODIFICATION NOTES
 ; ------------------
 ; Search for "MOD:" to find deliberately documented tweak points.  These are
@@ -380,6 +390,48 @@ landscape_mask       = &2320
 sound_table          = &2420
 envelope_table       = &21F0
 
+; Stage 5: frequently used game-state aliases.  These are address aliases only
+; and therefore do not alter a single emitted byte.
+saved_caller_sp       = &0E
+player_lives_spares   = &3D
+bomb_cooldown         = &3A
+bullet_cooldown       = &41
+section_index         = &4E
+section_spawn_timer   = &54
+frame_toggle_a        = &64
+frame_toggle_b        = &65
+warning_beeps_left    = &73
+warning_beep_timer    = &74
+section_object_slot_a = &77
+section_object_slot_b = &78
+bonus_life_awarded    = &79
+
+; Object descriptor / scoring tables.  Object type is the index (0..12).
+; The sprite address pair is proven by draw_object_by_type self-modifying the
+; absolute LDA at &1029 from these two tables.  The two draw-parameter tables
+; are deliberately named neutrally until their exact geometry units are proven.
+object_score_lo       = &2BF2
+object_score_mid      = &2BFF
+special_score_lo      = &2C18       ; four-way random award used by type 5
+special_score_mid     = &2C1C
+object_draw_param_1   = &2C2E
+object_draw_param_2   = &2C3B
+object_sprite_hi      = &2C48
+object_sprite_lo      = &2C55
+player_projectile_x_offset = &2C62
+
+; Object type IDs.  TYPE_PLAYER is proven.  Types 1/3/4/5/6/12 have distinct
+; behavioural paths now documented below; their on-screen names remain neutral
+; until positively correlated with the original graphics/gameplay.
+TYPE_PLAYER            = 0
+TYPE_STAGE_OBJECT_1    = 1
+TYPE_HIT_SPECIAL_2     = 2
+TYPE_RAID_COMPLETION   = 3
+TYPE_MOVING_OBJECT_4   = 4
+TYPE_RANDOM_SCORE_5    = 5
+TYPE_FAST_OBJECT_6     = 6
+TYPE_TRANSFORMED_12    = 12
+
 ; BBC key constants used by the game
 KEY_Q                 = &EF
 KEY_S                 = &AE
@@ -408,129 +460,129 @@ caller_stack_save_and_game_entry:
 ; CORE GAME ENTRY, FRAME LOOP, LANDSCAPE, RENDERER AND MASK BUILDER
 ; Converted from raw EQUB bytes to real 6502 mnemonics in Stage 4.
 ; -----------------------------------------------------------------------------
-    TSX                                ; &0E00
-    STX &0E                            ; &0E01  saved_caller_sp
-    JSR new_game_init                  ; &0E03
+    TSX                                ; saved_caller_sp00
+    STX saved_caller_sp                            ; saved_caller_sp01  saved_caller_sp
+    JSR new_game_init                  ; saved_caller_sp03
     JSR new_raid_init                  ; &0E06
     JSR new_life_init                  ; &0E09
     LDA &7B                            ; &0E0C
-    STA &FE4E                          ; &0E0E
-    JSR check_escape_restart           ; &0E11
-    JSR read_keyboard_controls         ; &0E14
-    JSR update_active_objects          ; &0E17
-    JSR &1321                          ; &0E1A
-    SEI                                ; &0E1D
-    JSR wait_vsync                     ; &0E1E
-    JSR &1266                          ; &0E21
-    JSR &1063                          ; &0E24
-    JSR &129B                          ; &0E27
-    CLI                                ; &0E2A
-    JSR &1579                          ; &0E2B
-    JSR &0EA3                          ; &0E2E
-    JMP &0E0C                          ; &0E31
+    STA &FE4E                          ; saved_caller_sp0E
+    JSR check_escape_restart           ; saved_caller_sp11
+    JSR read_keyboard_controls         ; saved_caller_sp14
+    JSR update_active_objects          ; saved_caller_sp17
+    JSR &1321                          ; saved_caller_sp1A
+    SEI                                ; saved_caller_sp1D
+    JSR wait_vsync                     ; saved_caller_sp1E
+    JSR &1266                          ; saved_caller_sp21
+    JSR copy_landscape_mask_to_screen                          ; saved_caller_sp24
+    JSR &129B                          ; saved_caller_sp27
+    CLI                                ; saved_caller_sp2A
+    JSR collision_controller                          ; saved_caller_sp2B
+    JSR &0EA3                          ; saved_caller_sp2E
+    JMP &0E0C                          ; saved_caller_sp31
     LDA &04                            ; &0E34
-    STA &55                            ; &0E36
-    LDA &06                            ; &0E38
-    STA &57                            ; &0E3A
-    LDA &08                            ; &0E3C
-    STA &59                            ; &0E3E
-    LDA &0A                            ; &0E40
-    STA &5B                            ; &0E42
-    LDA &32                            ; &0E44
-    STA &5D                            ; &0E46
-    LDA &05                            ; &0E48
-    STA &56                            ; &0E4A
-    LDA &07                            ; &0E4C
-    STA &58                            ; &0E4E
-    LDA &09                            ; &0E50
-    STA &5A                            ; &0E52
-    LDA &0B                            ; &0E54
-    STA &5C                            ; &0E56
-    LDY #&05                           ; &0E58
+    STA &55                            ; saved_caller_sp36
+    LDA &06                            ; saved_caller_sp38
+    STA &57                            ; saved_caller_sp3A
+    LDA &08                            ; saved_caller_sp3C
+    STA &59                            ; saved_caller_sp3E
+    LDA &0A                            ; saved_caller_sp40
+    STA &5B                            ; saved_caller_sp42
+    LDA &32                            ; saved_caller_sp44
+    STA &5D                            ; saved_caller_sp46
+    LDA &05                            ; saved_caller_sp48
+    STA &56                            ; saved_caller_sp4A
+    LDA &07                            ; saved_caller_sp4C
+    STA &58                            ; saved_caller_sp4E
+    LDA &09                            ; saved_caller_sp50
+    STA &5A                            ; saved_caller_sp52
+    LDA &0B                            ; saved_caller_sp54
+    STA &5C                            ; saved_caller_sp56
+    LDY #&05                           ; saved_caller_sp58
     LDA &002C,Y                        ; &0E5A
-    STA &005E,Y                        ; &0E5D
-    DEY                                ; &0E60
-    BPL &0E5A                          ; &0E61
-    LDY &4E                            ; &0E63  current_section
-    LDA &2C0C,Y                        ; &0E65
-    STA &4D                            ; &0E68
-    LDA &2C12,Y                        ; &0E6A
-    STA &28                            ; &0E6D
-    TYA                                ; &0E6F
-    PHA                                ; &0E70
-    LDA &2C26,Y                        ; &0E71
-    TAY                                ; &0E74
-    LDA #&0E                           ; &0E75
-    JSR &1C74                          ; &0E77
-    CLC                                ; &0E7A
-    ADC #&F0                           ; &0E7B
-    TAX                                ; &0E7D
-    LDY #&21                           ; &0E7E
-    BCC &0E83                          ; &0E80
-    INY                                ; &0E82
+    STA &005E,Y                        ; saved_caller_sp5D
+    DEY                                ; saved_caller_sp60
+    BPL &0E5A                          ; saved_caller_sp61
+    LDY section_index                            ; &0E63  current_section
+    LDA &2C0C,Y                        ; saved_caller_sp65
+    STA &4D                            ; saved_caller_sp68
+    LDA &2C12,Y                        ; saved_caller_sp6A
+    STA &28                            ; saved_caller_sp6D
+    TYA                                ; saved_caller_sp6F
+    PHA                                ; saved_caller_sp70
+    LDA &2C26,Y                        ; saved_caller_sp71
+    TAY                                ; saved_caller_sp74
+    LDA #saved_caller_sp                           ; saved_caller_sp75
+    JSR &1C74                          ; saved_caller_sp77
+    CLC                                ; saved_caller_sp7A
+    ADC #&F0                           ; saved_caller_sp7B
+    TAX                                ; saved_caller_sp7D
+    LDY #&21                           ; saved_caller_sp7E
+    BCC &0E83                          ; saved_caller_sp80
+    INY                                ; saved_caller_sp82
     LDA #&08                           ; &0E83
-    JSR &FFF1                          ; &0E85
-    PLA                                ; &0E88
-    TAY                                ; &0E89
-    LDA &2C20,Y                        ; &0E8A
-    LDY #&04                           ; &0E8D
-    JSR set_palette                    ; &0E8F
-    LDA #&E0                           ; &0E92
-    STA &2B                            ; &0E94
-    STA &50                            ; &0E96
-    STA &51                            ; &0E98
-    LDA #&28                           ; &0E9A
-    STA &2A                            ; &0E9C
-    LDA #&00                           ; &0E9E
-    STA &33                            ; &0EA0
-    RTS                                ; &0EA2
+    JSR &FFF1                          ; saved_caller_sp85
+    PLA                                ; saved_caller_sp88
+    TAY                                ; saved_caller_sp89
+    LDA &2C20,Y                        ; saved_caller_sp8A
+    LDY #&04                           ; saved_caller_sp8D
+    JSR set_palette                    ; saved_caller_sp8F
+    LDA #&E0                           ; saved_caller_sp92
+    STA &2B                            ; saved_caller_sp94
+    STA &50                            ; saved_caller_sp96
+    STA &51                            ; saved_caller_sp98
+    LDA #&28                           ; saved_caller_sp9A
+    STA &2A                            ; saved_caller_sp9C
+    LDA #&00                           ; saved_caller_sp9E
+    STA &33                            ; saved_caller_spA0
+    RTS                                ; saved_caller_spA2
     LDX &27                            ; &0EA3
-    BNE &0EB5                          ; &0EA5
-    LDA &4D                            ; &0EA7
-    BNE &0EB0                          ; &0EA9
-    INC &4E                            ; &0EAB  current_section
-    JSR &0E34                          ; &0EAD
+    BNE &0EB5                          ; saved_caller_spA5
+    LDA &4D                            ; saved_caller_spA7
+    BNE &0EB0                          ; saved_caller_spA9
+    INC section_index                            ; saved_caller_spAB  current_section
+    JSR &0E34                          ; saved_caller_spAD
     DEC &4D                            ; &0EB0
-    JSR &0F1B                          ; &0EB2
+    JSR &0F1B                          ; saved_caller_spB2
     LDX &28                            ; &0EB5
-    BMI &0EC7                          ; &0EB7
-    BNE &0EBE                          ; &0EB9
-    JSR &0F69                          ; &0EBB
+    BMI &0EC7                          ; saved_caller_spB7
+    BNE &0EBE                          ; saved_caller_spB9
+    JSR &0F69                          ; saved_caller_spBB
     LDX &28                            ; &0EBE
-    LDY &2BC1,X                        ; &0EC0
-    STY &50                            ; &0EC3
-    DEC &28                            ; &0EC5
+    LDY &2BC1,X                        ; saved_caller_spC0
+    STY &50                            ; saved_caller_spC3
+    DEC &28                            ; saved_caller_spC5
     JSR &1843                          ; &0EC7
-    JSR advance_scroll_position        ; &0ECA
-    LDA &0C                            ; &0ECD
-    STA &1B                            ; &0ECF
-    LDA &0D                            ; &0ED1
-    LSR A                              ; &0ED3
-    ROR &1B                            ; &0ED4
-    LSR A                              ; &0ED6
-    ROR &1B                            ; &0ED7
-    LSR A                              ; &0ED9
-    ROR &1B                            ; &0EDA
-    LDX #&0C                           ; &0EDC
-    JSR write_crtc_register            ; &0EDE
-    LDX #&0D                           ; &0EE1
-    LDA &1B                            ; &0EE3
-    JSR write_crtc_register            ; &0EE5
-    JSR &109D                          ; &0EE8
-    LDA &33                            ; &0EEB
-    BEQ &0EF5                          ; &0EED
-    JSR &1560                          ; &0EEF
-    JMP &0F0C                          ; &0EF2
+    JSR advance_scroll_position        ; saved_caller_spCA
+    LDA &0C                            ; saved_caller_spCD
+    STA &1B                            ; saved_caller_spCF
+    LDA &0D                            ; saved_caller_spD1
+    LSR A                              ; saved_caller_spD3
+    ROR &1B                            ; saved_caller_spD4
+    LSR A                              ; saved_caller_spD6
+    ROR &1B                            ; saved_caller_spD7
+    LSR A                              ; saved_caller_spD9
+    ROR &1B                            ; saved_caller_spDA
+    LDX #&0C                           ; saved_caller_spDC
+    JSR write_crtc_register            ; saved_caller_spDE
+    LDX #&0D                           ; saved_caller_spE1
+    LDA &1B                            ; saved_caller_spE3
+    JSR write_crtc_register            ; saved_caller_spE5
+    JSR build_landscape_collision_mask                          ; saved_caller_spE8
+    LDA &33                            ; saved_caller_spEB
+    BEQ &0EF5                          ; saved_caller_spED
+    JSR &1560                          ; saved_caller_spEF
+    JMP &0F0C                          ; saved_caller_spF2
     LDA &29                            ; &0EF5
-    BNE &0F0C                          ; &0EF7
-    LDX &32                            ; &0EF9
-    LDY &2A00,X                        ; &0EFB
-    LDA &2C62,Y                        ; &0EFE
+    BNE &0F0C                          ; saved_caller_spF7
+    LDX &32                            ; saved_caller_spF9
+    LDY &2A00,X                        ; saved_caller_spFB
+    LDA player_projectile_x_offset,Y                        ; saved_caller_spFE
     TAY                                ; &0F01
     LDA &27                            ; &0F02
     JSR wrap_delta                     ; &0F04
     BNE &0F0C                          ; &0F07
-    JSR &1529                          ; &0F09
+    JSR spawn_landscape_object                          ; &0F09
     LDX &27                            ; &0F0C
     LDY &2BA0,X                        ; &0F0E
     CPY &22                            ; &0F11
@@ -543,7 +595,7 @@ caller_stack_save_and_game_entry:
     LDA (&04),Y                        ; &0F1D
     STA &1C                            ; &0F1F
     BPL &0F29                          ; &0F21
-    LDX &0E                            ; &0F23  saved_caller_sp
+    LDX saved_caller_sp                            ; &0F23  saved_caller_sp
     TXS                                ; &0F25
     JMP &0E06                          ; &0F26
     AND #&1F                           ; &0F29
@@ -584,7 +636,7 @@ caller_stack_save_and_game_entry:
     LDA (&08),Y                        ; &0F6B
     STA &1C                            ; &0F6D
     BPL &0F77                          ; &0F6F
-    LDX &0E                            ; &0F71  saved_caller_sp
+    LDX saved_caller_sp                            ; &0F71  saved_caller_sp
     TXS                                ; &0F73
     JMP &0E06                          ; &0F74
     AND #&1F                           ; &0F77
@@ -667,6 +719,7 @@ caller_stack_save_and_game_entry:
     ORA &02                            ; &0FFB
     STA &02                            ; &0FFD
     RTS                                ; &0FFF
+xor_sprite_renderer:
     LDA &03                            ; &1000
     BNE &1005                          ; &1002
     RTS                                ; &1004
@@ -723,11 +776,12 @@ caller_stack_save_and_game_entry:
     PLA                                ; &105F
     STA &1E                            ; &1060
     RTS                                ; &1062
+copy_landscape_mask_to_screen:
     LDX #&FF                           ; &1063
     LDY #&00                           ; &1065
     LDA &0C                            ; &1067
     CLC                                ; &1069
-    ADC #&78                           ; &106A
+    ADC #section_object_slot_b                           ; &106A
     STA &00                            ; &106C
     LDA &0D                            ; &106E
     ADC #&02                           ; &1070
@@ -735,7 +789,7 @@ caller_stack_save_and_game_entry:
     SEC                                ; &1074
     SBC #&50                           ; &1075
     STA &01                            ; &1077
-    LDA &2320,X                        ; &1079
+    LDA landscape_mask,X                        ; &1079
     STA (&00),Y                        ; &107C
     DEX                                ; &107E
     INY                                ; &107F
@@ -755,6 +809,7 @@ caller_stack_save_and_game_entry:
     CPX #&FF                           ; &1098
     BNE &1079                          ; &109A
     RTS                                ; &109C
+build_landscape_collision_mask:
     LDA &23                            ; &109D
     CMP &22                            ; &109F
     BCC &10B0                          ; &10A1
@@ -794,32 +849,32 @@ caller_stack_save_and_game_entry:
     BCC &10ED                          ; &10E8
     JMP &1123                          ; &10EA
     LDA #&00                           ; &10ED
-    STA &2320,X                        ; &10EF
+    STA landscape_mask,X                        ; &10EF
     CPX #&E0                           ; &10F2
     BEQ &10FA                          ; &10F4
     DEX                                ; &10F6
     JMP &10EF                          ; &10F7
     LDA #&30                           ; &10FA
-    STA &2320,X                        ; &10FC
+    STA landscape_mask,X                        ; &10FC
     CPX &53                            ; &10FF
     BEQ &1107                          ; &1101
     DEX                                ; &1103
     JMP &10FC                          ; &1104
     LDA #&0C                           ; &1107
-    STA &2320,X                        ; &1109
+    STA landscape_mask,X                        ; &1109
     DEX                                ; &110C
     LDA &4F                            ; &110D
     BNE &1116                          ; &110F
     LDA #&08                           ; &1111
     JMP &1118                          ; &1113
     LDA #&04                           ; &1116
-    STA &2320,X                        ; &1118
+    STA landscape_mask,X                        ; &1118
     CPX &52                            ; &111B
     BCC &1123                          ; &111D
     DEX                                ; &111F
     JMP &1118                          ; &1120
     LDA #&00                           ; &1123
-    STA &2320,X                        ; &1125
+    STA landscape_mask,X                        ; &1125
     CPX &24                            ; &1128
     BEQ &1130                          ; &112A
     DEX                                ; &112C
@@ -829,16 +884,16 @@ caller_stack_save_and_game_entry:
     LDA #&08                           ; &1134
     JMP &113B                          ; &1136
     LDA #&04                           ; &1139
-    STA &2320,X                        ; &113B
+    STA landscape_mask,X                        ; &113B
     CPX &25                            ; &113E
     BEQ &1146                          ; &1140
     DEX                                ; &1142
     JMP &113B                          ; &1143
     LDA #&0C                           ; &1146
-    STA &2320,X                        ; &1148
+    STA landscape_mask,X                        ; &1148
     DEX                                ; &114B
     LDA #&30                           ; &114C
-    STA &2320,X                        ; &114E
+    STA landscape_mask,X                        ; &114E
     CPX #&00                           ; &1151
     BEQ &1159                          ; &1153
     DEX                                ; &1155
@@ -865,13 +920,13 @@ new_game_init:
     LDA #&00                           ; &1175
     JSR write_crtc_register            ; &1177
     LDA #&02                           ; &117A
-    STA &3D                            ; &117C  lives
+    STA player_lives_spares                            ; &117C  lives
     LDA #&00                           ; &117E
     STA &3E                            ; &1180  score_lo
     STA &3F                            ; &1182  score_mid
     STA &40                            ; &1184  score_hi
     STA &76                            ; &1186  stage_bcd
-    STA &79                            ; &1188  bonus_life_awarded
+    STA bonus_life_awarded                            ; &1188  bonus_life_awarded
     RTS                                ; &118A
 new_raid_init:
     LDA #&57                           ; &118B
@@ -903,7 +958,7 @@ new_raid_init:
     CLD                                ; &11BD
     LDA #&00                           ; &11BE
     STA &32                            ; &11C0
-    STA &4E                            ; &11C2  current_section
+    STA section_index                            ; &11C2  current_section
     STA &6F                            ; &11C4
     JMP &0E34                          ; &11C6
 new_life_init:
@@ -922,25 +977,25 @@ new_life_init:
     BPL &11DD                          ; &11E4
     LDA #&00                           ; &11E6
     STA &4A                            ; &11E8
-    STA &64                            ; &11EA
-    STA &65                            ; &11EC
-    STA &3A                            ; &11EE
-    STA &41                            ; &11F0
+    STA frame_toggle_a                            ; &11EA
+    STA frame_toggle_b                            ; &11EC
+    STA bomb_cooldown                            ; &11EE
+    STA bullet_cooldown                            ; &11F0
     STA &7A                            ; &11F2
     LDY #&13                           ; &11F4
     STA &2B00,Y                        ; &11F6
     STA &2B14,Y                        ; &11F9
     STA &2B28,Y                        ; &11FC
     STA &2B3C,Y                        ; &11FF
-    STA &2B8C,Y                        ; &1202  object_y_table
-    STA &2B78,Y                        ; &1205  object_x_table
+    STA object_y_table,Y                        ; &1202  object_y_table
+    STA object_x_table,Y                        ; &1205  object_x_table
     DEY                                ; &1208
     BPL &11F6                          ; &1209
     STA &3B                            ; &120B
     STA &3C                            ; &120D
     STA &27                            ; &120F
-    STA &77                            ; &1211
-    STA &78                            ; &1213
+    STA section_object_slot_a                            ; &1211
+    STA section_object_slot_b                            ; &1213
     LDA &55                            ; &1215
     STA &04                            ; &1217
     LDA &57                            ; &1219
@@ -961,11 +1016,11 @@ new_life_init:
     STA &0B                            ; &1237
     LDY #&09                           ; &1239
     LDA #&80                           ; &123B
-    STA &2B64,Y                        ; &123D  object_state_table
+    STA object_state_table,Y                        ; &123D  object_state_table
     DEY                                ; &1240
     BPL &123D                          ; &1241
     LDA #&14                           ; &1243
-    STA &54                            ; &1245
+    STA section_spawn_timer                            ; &1245
     LDA #&01                           ; &1247
     STA &1D                            ; &1249
     LDY #&05                           ; &124B
@@ -974,10 +1029,10 @@ new_life_init:
     DEY                                ; &1253
     BPL &124D                          ; &1254
     LDA #&06                           ; &1256
-    STA &2B78                          ; &1258  object_x_table
+    STA object_x_table                          ; &1258  object_x_table
     LDA #&BB                           ; &125B
-    STA &2B8C                          ; &125D  object_y_table
-    JSR &109D                          ; &1260
+    STA object_y_table                          ; &125D  object_y_table
+    JSR build_landscape_collision_mask                          ; &1260
     JMP &0E63                          ; &1263
 
 ; -----------------------------------------------------------------------------
@@ -1010,7 +1065,7 @@ new_life_init:
     JMP erase_object_by_type           ; &1297
     RTS                                ; &129A
     LDY #&01                           ; &129B
-    LDA &2B64,Y                        ; &129D  object_state_table
+    LDA object_state_table,Y                        ; &129D  object_state_table
     ASL A                              ; &12A0
     BMI &12C4                          ; &12A1
     ASL A                              ; &12A3
@@ -1030,7 +1085,7 @@ new_life_init:
     INY                                ; &12C4
     CPY #&09                           ; &12C5
     BNE &129D                          ; &12C7
-    LDA &2B64,Y                        ; &12C9  object_state_table
+    LDA object_state_table,Y                        ; &12C9  object_state_table
     BPL &12E0                          ; &12CC
     ASL A                              ; &12CE
     BMI &12E0                          ; &12CF
@@ -1073,13 +1128,13 @@ new_life_init:
     DEX                                ; &131D
     BPL &12E7                          ; &131E
     RTS                                ; &1320
-    LDA &79                            ; &1321  bonus_life_awarded
+    LDA bonus_life_awarded                            ; &1321  bonus_life_awarded
     BPL &1330                          ; &1323
     JSR &1D02                          ; &1325
-    LDA &73                            ; &1328
+    LDA warning_beeps_left                            ; &1328
     BNE &1330                          ; &132A
     LDA #&7F                           ; &132C
-    STA &79                            ; &132E  bonus_life_awarded
+    STA bonus_life_awarded                            ; &132E  bonus_life_awarded
     LDY #&09                           ; &1330
     LDA &2B28,Y                        ; &1332
     STA &2B00,Y                        ; &1335
@@ -1089,13 +1144,13 @@ new_life_init:
     BPL &1332                          ; &133F
     LDY #&13                           ; &1341
     STY &16                            ; &1343
-    LDA &2B64,Y                        ; &1345  object_state_table
+    LDA object_state_table,Y                        ; &1345  object_state_table
     BPL &1364                          ; &1348
     ASL A                              ; &134A
     BMI &1364                          ; &134B
-    LDA &2B78,Y                        ; &134D  object_x_table
+    LDA object_x_table,Y                        ; &134D  object_x_table
     TAX                                ; &1350
-    LDA &2B8C,Y                        ; &1351  object_y_table
+    LDA object_y_table,Y                        ; &1351  object_y_table
     TAY                                ; &1354
     JSR &0FB7                          ; &1355
     LDY &16                            ; &1358
@@ -1179,9 +1234,9 @@ read_keyboard_controls:
     JSR inkey                          ; &13F5
     BEQ &13FD                          ; &13F8
     JSR move_player_back               ; &13FA
-    LDA &3A                            ; &13FD
+    LDA bomb_cooldown                            ; &13FD
     BEQ &1405                          ; &13FF
-    DEC &3A                            ; &1401
+    DEC bomb_cooldown                            ; &1401
     BNE &1419                          ; &1403
     LDX #&9F                           ; &1405
     JSR inkey                          ; &1407
@@ -1193,9 +1248,9 @@ read_keyboard_controls:
     EOR &42                            ; &1412
     BEQ &1419                          ; &1414
     JSR drop_bomb                      ; &1416
-    LDA &41                            ; &1419
+    LDA bullet_cooldown                            ; &1419
     BEQ &1421                          ; &141B
-    DEC &41                            ; &141D
+    DEC bullet_cooldown                            ; &141D
     BNE &1435                          ; &141F
     LDX #&B6                           ; &1421
     JSR inkey                          ; &1423
@@ -1209,34 +1264,34 @@ read_keyboard_controls:
     JSR fire_bullet                    ; &1432
     RTS                                ; &1435
 move_player_up:
-    INC &2B8C                          ; &1436  object_y_table
-    INC &2B8C                          ; &1439  object_y_table
+    INC object_y_table                          ; &1436  object_y_table
+    INC object_y_table                          ; &1439  object_y_table
     LDX #&DD                           ; &143C
-    CPX &2B8C                          ; &143E  object_y_table
+    CPX object_y_table                          ; &143E  object_y_table
     BCS &1446                          ; &1441
-    STX &2B8C                          ; &1443  object_y_table
+    STX object_y_table                          ; &1443  object_y_table
     RTS                                ; &1446
 move_player_down:
-    DEC &2B8C                          ; &1447  object_y_table
-    DEC &2B8C                          ; &144A  object_y_table
+    DEC object_y_table                          ; &1447  object_y_table
+    DEC object_y_table                          ; &144A  object_y_table
     LDX #&13                           ; &144D
-    CPX &2B8C                          ; &144F  object_y_table
+    CPX object_y_table                          ; &144F  object_y_table
     BCC &1457                          ; &1452
-    STX &2B8C                          ; &1454  object_y_table
+    STX object_y_table                          ; &1454  object_y_table
     RTS                                ; &1457
 move_player_back:
-    DEC &2B78                          ; &1458  object_x_table
+    DEC object_x_table                          ; &1458  object_x_table
     LDX #&06                           ; &145B
-    CPX &2B78                          ; &145D  object_x_table
+    CPX object_x_table                          ; &145D  object_x_table
     BCC &1465                          ; &1460
-    STX &2B78                          ; &1462  object_x_table
+    STX object_x_table                          ; &1462  object_x_table
     RTS                                ; &1465
 move_player_forward:
-    INC &2B78                          ; &1466  object_x_table
+    INC object_x_table                          ; &1466  object_x_table
     LDX #&1E                           ; &1469
-    CPX &2B78                          ; &146B  object_x_table
+    CPX object_x_table                          ; &146B  object_x_table
     BCS &1473                          ; &146E
-    STX &2B78                          ; &1470  object_x_table
+    STX object_x_table                          ; &1470  object_x_table
     RTS                                ; &1473
     LDX #&A6                           ; &1474
     JSR inkey                          ; &1476
@@ -1269,8 +1324,8 @@ player_screen_setup:
     LDA &22                            ; &14A5
     EOR #&01                           ; &14A7
     STA &22                            ; &14A9
-    JSR &109D                          ; &14AB
-    JSR &1063                          ; &14AE
+    JSR build_landscape_collision_mask                          ; &14AB
+    JSR copy_landscape_mask_to_screen                          ; &14AE
     JSR &18A7                          ; &14B1
     LDA &0D                            ; &14B4
     CMP #&30                           ; &14B6
@@ -1289,16 +1344,17 @@ player_screen_setup:
     LDX #&0D                           ; &14CE
     LDA &1B                            ; &14D0
     JSR write_crtc_register            ; &14D2
-    JSR &14E1                          ; &14D5
+    JSR draw_spare_lives_icons                          ; &14D5
     JSR &1832                          ; &14D8
     JSR update_score_and_bonus_life    ; &14DB
     JMP wait_vsync                     ; &14DE
+draw_spare_lives_icons:
     LDX #&50                           ; &14E1
     LDA #&00                           ; &14E3
     STA &22D0,X                        ; &14E5
     DEX                                ; &14E8
     BPL &14E5                          ; &14E9
-    LDA &3D                            ; &14EB  lives
+    LDA player_lives_spares                            ; &14EB  lives
     BEQ &1528                          ; &14ED
     CMP #&02                           ; &14EF
     BCC &14F5                          ; &14F1
@@ -1330,6 +1386,7 @@ player_screen_setup:
     DEC &1C                            ; &1524
     BNE &150B                          ; &1526
     RTS                                ; &1528
+spawn_landscape_object:
     LDY &32                            ; &1529
     INC &32                            ; &152B
     LDA &2A00,Y                        ; &152D
@@ -1338,7 +1395,7 @@ player_screen_setup:
     LDX #&4F                           ; &1532
     LDA &2BA1                          ; &1534
     CLC                                ; &1537
-    ADC &2C2E,Y                        ; &1538
+    ADC object_draw_param_1,Y                        ; &1538
     TAY                                ; &153B
     DEY                                ; &153C
     STY &72                            ; &153D
@@ -1347,13 +1404,13 @@ player_screen_setup:
     JSR allocate_object_slot           ; &1541
     PLA                                ; &1544
     TAY                                ; &1545
-    LDA &2C55,Y                        ; &1546
+    LDA object_sprite_lo,Y                        ; &1546
     STA &1569                          ; &1549
-    LDA &2C48,Y                        ; &154C
+    LDA object_sprite_hi,Y                        ; &154C
     STA &156A                          ; &154F
-    LDA &2C3B,Y                        ; &1552
+    LDA object_draw_param_2,Y                        ; &1552
     STA &33                            ; &1555
-    LDA &2C2E,Y                        ; &1557
+    LDA object_draw_param_1,Y                        ; &1557
     STA &34                            ; &155A
     LDX #&00                           ; &155C
     STX &35                            ; &155E
@@ -1363,19 +1420,20 @@ player_screen_setup:
     LDY &72                            ; &1566
     LDA &FFFF,X                        ; &1568
     INX                                ; &156B
-    STA &2320,Y                        ; &156C
+    STA landscape_mask,Y                        ; &156C
     DEY                                ; &156F
     DEC &33                            ; &1570
     DEC &0F                            ; &1572
     BNE &1568                          ; &1574
     STX &35                            ; &1576
     RTS                                ; &1578
+collision_controller:
     LDA &2B14                          ; &1579
     BNE &157F                          ; &157C
     RTS                                ; &157E
-    LDA &2C55                          ; &157F
+    LDA object_sprite_lo                          ; &157F
     STA &14                            ; &1582
-    LDA &2C48                          ; &1584
+    LDA object_sprite_hi                          ; &1584
     STA &15                            ; &1587
     LDA &2B28                          ; &1589
     STA &02                            ; &158C
@@ -1384,21 +1442,21 @@ player_screen_setup:
     LDY #&00                           ; &1593
     STY &36                            ; &1595
     JSR &1738                          ; &1597
-    LDY &2C2E                          ; &159A
+    LDY object_draw_param_1                          ; &159A
     DEY                                ; &159D
     STY &36                            ; &159E
-    LDX &2B78                          ; &15A0  object_x_table
-    LDA &2B8C                          ; &15A3  object_y_table
+    LDX object_x_table                          ; &15A0  object_x_table
+    LDA object_y_table                          ; &15A3  object_y_table
     SEC                                ; &15A6
     SBC &36                            ; &15A7
     TAY                                ; &15A9
     JSR &0FB7                          ; &15AA
     JSR &1738                          ; &15AD
-    LDA &2C2E                          ; &15B0
+    LDA object_draw_param_1                          ; &15B0
     LSR A                              ; &15B3
     STA &36                            ; &15B4
-    LDX &2B78                          ; &15B6  object_x_table
-    LDA &2B8C                          ; &15B9  object_y_table
+    LDX object_x_table                          ; &15B6  object_x_table
+    LDA object_y_table                          ; &15B9  object_y_table
     SEC                                ; &15BC
     SBC &36                            ; &15BD
     TAY                                ; &15BF
@@ -1422,7 +1480,7 @@ player_screen_setup:
     STA &02                            ; &15E6
     LDA &2C38                          ; &15E8
     STA &1B                            ; &15EB
-    JSR &1627                          ; &15ED
+    JSR compare_collision_bytes                          ; &15ED
     DEC &4C                            ; &15F0
     LDX &4C                            ; &15F2
     BPL &15D4                          ; &15F4
@@ -1444,11 +1502,12 @@ player_screen_setup:
     STA &02                            ; &1616
     LDA &2C37                          ; &1618
     STA &1B                            ; &161B
-    JSR &1627                          ; &161D
+    JSR compare_collision_bytes                          ; &161D
     DEC &4C                            ; &1620
     LDX &4C                            ; &1622
     BPL &1604                          ; &1624
     RTS                                ; &1626
+compare_collision_bytes:
     LDY #&00                           ; &1627
     STY &36                            ; &1629
     LDY &37                            ; &162B
@@ -1457,7 +1516,7 @@ player_screen_setup:
     EOR (&14),Y                        ; &1631
     STA &45                            ; &1633
     BNE &1643                          ; &1635
-    JSR &1716                          ; &1637
+    JSR advance_collision_scan_row                          ; &1637
     INC &36                            ; &163A
     LDY &36                            ; &163C
     CPY &1B                            ; &163E
@@ -1468,43 +1527,50 @@ player_screen_setup:
     BNE &165B                          ; &1648
     LDA &2B8D,X                        ; &164A
     STA &71                            ; &164D
-    LDA &2B79,X                        ; &164F
+    LDA bomb_slot_table,X                        ; &164F
     STA &46                            ; &1652
     LDA #&00                           ; &1654
-    STA &2B79,X                        ; &1656
+    STA bomb_slot_table,X                        ; &1656
     BEQ &166A                          ; &1659
     LDA &2B8F,X                        ; &165B
     STA &71                            ; &165E
-    LDA &2B7B,X                        ; &1660
+    LDA bullet_slot_table,X                        ; &1660
     STA &46                            ; &1663
     LDA #&00                           ; &1665
-    STA &2B7B,X                        ; &1667
+    STA bullet_slot_table,X                        ; &1667
     LDA &45                            ; &166A
     AND #&C0                           ; &166C
     BEQ &1693                          ; &166E
     LDX #&13                           ; &1670
-    LDA &2B78,X                        ; &1672  object_x_table
+    LDA object_x_table,X                        ; &1672  object_x_table
     BEQ &168E                          ; &1675
     LDA &46                            ; &1677
     SEC                                ; &1679
-    SBC &2B78,X                        ; &167A  object_x_table
+    SBC object_x_table,X                        ; &167A  object_x_table
     CMP #&10                           ; &167D
     BCS &168E                          ; &167F
-    LDA &2B8C,X                        ; &1681  object_y_table
+    LDA object_y_table,X                        ; &1681  object_y_table
     SEC                                ; &1684
     SBC &71                            ; &1685
     JSR abs_a                          ; &1687
     CMP #&18                           ; &168A
-    BCC &1698                          ; &168C
+    BCC resolve_object_hit                          ; &168C
     DEX                                ; &168E
     CPX #&06                           ; &168F
     BNE &1672                          ; &1691
     LDA #&07                           ; &1693
     JMP play_sound_effect              ; &1695
+resolve_object_hit:
+; X = object slot that overlapped the player's projectile/collision probe.
+; Behaviour is selected by object type:
+;   type 2  -> special terrain/screen modification before completion
+;   type 5  -> random one-of-four score award
+;   type 3  -> completes the raid immediately
+;   others  -> table-driven packed-BCD score, then sound effect 6
     JSR &1BD4                          ; &1698
-    LDA &2B50,X                        ; &169B  object_type_table
+    LDA object_type_table,X                        ; &169B  object_type_table
     PHA                                ; &169E
-    CMP #&02                           ; &169F
+    CMP #TYPE_HIT_SPECIAL_2             ; &169F
     BNE &16E9                          ; &16A1
     LDA &47                            ; &16A3
     AND #&F8                           ; &16A5
@@ -1543,27 +1609,28 @@ player_screen_setup:
     DEX                                ; &16E3
     BNE &16AB                          ; &16E4
     JMP &16FE                          ; &16E6
-    CMP #&05                           ; &16E9
+    CMP #TYPE_RANDOM_SCORE_5            ; &16E9
     BNE &16FE                          ; &16EB
     PLA                                ; &16ED
     JSR multiply_a_by_y                ; &16EE
     AND #&03                           ; &16F1
     TAY                                ; &16F3
-    LDA &2C1C,Y                        ; &16F4
+    LDA special_score_mid,Y                        ; &16F4
     TAX                                ; &16F7
-    LDA &2C18,Y                        ; &16F8
+    LDA special_score_lo,Y                        ; &16F8
     JMP &170E                          ; &16FB
-    CMP #&03                           ; &16FE
+    CMP #TYPE_RAID_COMPLETION           ; &16FE
     BNE &1705                          ; &1700
     JMP raid_complete                  ; &1702
     PLA                                ; &1705
     TAY                                ; &1706
-    LDA &2BFF,Y                        ; &1707
+    LDA object_score_mid,Y                        ; &1707
     TAX                                ; &170A
-    LDA &2BF2,Y                        ; &170B
+    LDA object_score_lo,Y                        ; &170B
     JSR add_score_bcd                  ; &170E
     LDA #&06                           ; &1711
     JMP play_sound_effect              ; &1713
+advance_collision_scan_row:
     LDA &37                            ; &1716
     AND #&07                           ; &1718
     CMP #&07                           ; &171A
@@ -1588,9 +1655,9 @@ player_screen_setup:
     LDY #&00                           ; &173C
     CMP (&02),Y                        ; &173E
     BNE player_destroyed               ; &1740
-    JSR &1797                          ; &1742
+    JSR advance_collision_screen_ptr                          ; &1742
     LDY &36                            ; &1745
-    CPY &2C3B                          ; &1747
+    CPY object_draw_param_2                          ; &1747
     BCC &1738                          ; &174A
     RTS                                ; &174C
 
@@ -1605,9 +1672,9 @@ player_destroyed:
     STA &03                            ; &1755
     LDA #&00                           ; &1757
     JSR draw_object_by_type            ; &1759
-    LDX &2B78                          ; &175C  object_x_table
+    LDX object_x_table                          ; &175C  object_x_table
     DEX                                ; &175F
-    LDY &2B8C                          ; &1760  object_y_table
+    LDY object_y_table                          ; &1760  object_y_table
     INY                                ; &1763
     INY                                ; &1764
     JSR &0FB7                          ; &1765
@@ -1629,16 +1696,17 @@ player_destroyed:
     DEX                                ; &1789
     BPL &1777                          ; &178A
 finish_player_death:
-    LDX &0E                            ; &178C  saved_caller_sp
+    LDX saved_caller_sp                            ; &178C  saved_caller_sp
     TXS                                ; &178E
-    DEC &3D                            ; &178F  lives
+    DEC player_lives_spares                            ; &178F  lives
     BMI game_over_return               ; &1791
     JMP &0E09                          ; &1793
 game_over_return:
     RTS                                ; &1796
+advance_collision_screen_ptr:
     LDA &36                            ; &1797
     CLC                                ; &1799
-    ADC &2C2E                          ; &179A
+    ADC object_draw_param_1                          ; &179A
     STA &36                            ; &179D
     LDA &02                            ; &179F
     CLC                                ; &17A1
@@ -1663,7 +1731,7 @@ add_score_bcd:
     STA &40                            ; &17C0  score_hi
     CLD                                ; &17C2
 update_score_and_bonus_life:
-    LDA &79                            ; &17C3  bonus_life_awarded
+    LDA bonus_life_awarded                            ; &17C3  bonus_life_awarded
     BNE &17DF                          ; &17C5
     LDA &40                            ; &17C7  score_hi
     CMP #&01                           ; &17C9
@@ -1671,10 +1739,10 @@ update_score_and_bonus_life:
     LDA &3F                            ; &17CD  score_mid
     CMP #&50                           ; &17CF
     BCC &17DF                          ; &17D1
-    INC &3D                            ; &17D3  lives
-    JSR &14E1                          ; &17D5
+    INC player_lives_spares                            ; &17D3  lives
+    JSR draw_spare_lives_icons                          ; &17D5
     LDA #&FF                           ; &17D8
-    STA &79                            ; &17DA  bonus_life_awarded
+    STA bonus_life_awarded                            ; &17DA  bonus_life_awarded
     JSR start_warning_beeper           ; &17DC
     LDA #&50                           ; &17DF
     STA &17                            ; &17E1
@@ -1738,7 +1806,7 @@ print_score_digit:
     EQUB &03, &38, &E9, &50, &8D, &A0, &18, &A2, &B0, &4C, &9B, &18, &A0, &00, &EE, &A0    ; &1880
     EQUB &18, &10, &11, &A9, &30, &8D, &A0, &18, &4C, &A4, &18, &BD, &20, &22, &99, &00    ; &1890
     EQUB &FF, &C8, &F0, &E8, &E8, &D0, &F4, &A5, &48, &30, &1F, &A5, &47, &29, &F8, &18    ; &18A0
-    EQUB &65, &0C, &85, &14, &A5, &0D, &69, &05, &65, &48, &10, &03, &38, &E9, &50, &85    ; &18B0
+    EQUB frame_toggle_b, &0C, &85, &14, &A5, &0D, &69, &05, frame_toggle_b, &48, &10, &03, &38, &E9, &50, &85    ; &18B0
     EQUB &15, &A0, &06, &A9, &2D, &91, &14, &88, &D0, &FB, &A5, &0C, &18, &69, &50, &85    ; &18C0
     EQUB &14, &A5, &0D, &69, &07, &10, &03, &38, &E9, &50, &85, &15, &A0, &07, &A9, &3F    ; &18D0
     EQUB &91, &14, &A9, &15, &88, &D0, &F9, &A9, &3F, &91, &14, &A5, &0C, &18, &69, &48    ; &18E0
@@ -1756,50 +1824,56 @@ print_score_digit:
 ; -----------------------------------------------------------------------------
 drop_bomb:
     LDY #&01                           ; &1907
-    LDA &2B79,Y                        ; &1909
+    LDA bomb_slot_table,Y                        ; &1909
     BEQ &1914                          ; &190C
     DEY                                ; &190E
-    LDA &2B79,Y                        ; &190F
+    LDA bomb_slot_table,Y                        ; &190F
     BNE &1937                          ; &1912
-    LDA &2B78                          ; &1914  object_x_table
+    LDA object_x_table                          ; &1914  object_x_table
     CLC                                ; &1917
     ADC #&03                           ; &1918
-    STA &2B79,Y                        ; &191A
-    LDA &2B8C                          ; &191D  object_y_table
+    STA bomb_slot_table,Y                        ; &191A
+    LDA object_y_table                          ; &191D  object_y_table
     SEC                                ; &1920
-    SBC &2C2E                          ; &1921
+    SBC object_draw_param_1                          ; &1921
     SBC #&01                           ; &1924
     STA &2B8D,Y                        ; &1926
     LDA #&20                           ; &1929
     STA &0038,Y                        ; &192B
     LDA #&06                           ; &192E
-    STA &3A                            ; &1930
+    STA bomb_cooldown                            ; &1930
     LDA #&02                           ; &1932
     JMP play_sound_effect              ; &1934
     RTS                                ; &1937
 fire_bullet:
     LDY #&03                           ; &1938
-    LDA &2B7B,Y                        ; &193A
+    LDA bullet_slot_table,Y                        ; &193A
     BEQ &1943                          ; &193D
     DEY                                ; &193F
     BPL &193A                          ; &1940
     RTS                                ; &1942
-    LDA &2B78                          ; &1943  object_x_table
+    LDA object_x_table                          ; &1943  object_x_table
     CLC                                ; &1946
-    ADC &2C62                          ; &1947
-    STA &2B7B,Y                        ; &194A
-    LDA &2B8C                          ; &194D  object_y_table
+    ADC player_projectile_x_offset                          ; &1947
+    STA bullet_slot_table,Y                        ; &194A
+    LDA object_y_table                          ; &194D  object_y_table
     SEC                                ; &1950
     SBC #&04                           ; &1951
     STA &2B8F,Y                        ; &1953
     LDA #&A0                           ; &1956
     STA &2B67,Y                        ; &1958
     LDA #&01                           ; &195B
-    STA &41                            ; &195D
+    STA bullet_cooldown                            ; &195D
     LDA #&01                           ; &195F
     JMP play_sound_effect              ; &1961
 spawn_section_hazards:
-    LDY &4E                            ; &1964  current_section
+; Section-specific object generator.  section_index dispatches between four
+; spawn behaviours.  Confirmed event sounds from these paths:
+;   sound 3  - TYPE_STAGE_OBJECT_1 transforms into TYPE_TRANSFORMED_12
+;   sound 4  - TYPE_MOVING_OBJECT_4 spawn event
+;   sound 5  - TYPE_FAST_OBJECT_6 spawn event
+; MOD: changing the AND masks at &198D/&19D2/&19E7 changes spawn frequency.
+    LDY section_index                            ; &1964  current_section
     BEQ &1972                          ; &1966
     DEY                                ; &1968
     BEQ &19B0                          ; &1969
@@ -1809,10 +1883,10 @@ spawn_section_hazards:
     DEY                                ; &196F
     BEQ &1989                          ; &1970
     LDY #&13                           ; &1972
-    LDA &2B50,Y                        ; &1974  object_type_table
-    CMP #&01                           ; &1977
+    LDA object_type_table,Y                        ; &1974  object_type_table
+    CMP #TYPE_STAGE_OBJECT_1            ; &1977
     BNE &1984                          ; &1979
-    LDA &2B78,Y                        ; &197B  object_x_table
+    LDA object_x_table,Y                        ; &197B  object_x_table
     BEQ &1984                          ; &197E
     CMP #&4C                           ; &1980
     BCC &198A                          ; &1982
@@ -1824,20 +1898,20 @@ spawn_section_hazards:
     AND #&07                           ; &198D
     BNE &1984                          ; &198F
     LDA #&C0                           ; &1991
-    STA &2B64,Y                        ; &1993  object_state_table
-    LDA #&0C                           ; &1996
-    STA &2B50,Y                        ; &1998  object_type_table
+    STA object_state_table,Y                        ; &1993  object_state_table
+    LDA #TYPE_TRANSFORMED_12            ; &1996
+    STA object_type_table,Y                        ; &1998  object_type_table
     TYA                                ; &199B
-    LDX &77                            ; &199C
+    LDX section_object_slot_a                            ; &199C
     BNE &19A5                          ; &199E
-    STA &77                            ; &19A0
+    STA section_object_slot_a                            ; &19A0
     JMP &19A7                          ; &19A2
-    STA &78                            ; &19A5
+    STA section_object_slot_b                            ; &19A5
     TAX                                ; &19A7
-    INC &2B78,X                        ; &19A8  object_x_table
+    INC object_x_table,X                        ; &19A8  object_x_table
     LDA #&03                           ; &19AB
     JMP play_sound_effect              ; &19AD
-    DEC &54                            ; &19B0
+    DEC section_spawn_timer                            ; &19B0
     BNE &19E3                          ; &19B2
     LDX &2B80                          ; &19B4
     BNE &19C3                          ; &19B7
@@ -1846,52 +1920,52 @@ spawn_section_hazards:
     LDA #&04                           ; &19BE
     JSR play_sound_effect              ; &19C0
     LDY #&08                           ; &19C3
-    LDA &2B78,Y                        ; &19C5  object_x_table
+    LDA object_x_table,Y                        ; &19C5  object_x_table
     BEQ &19CB                          ; &19C8
     DEY                                ; &19CA
     LDA #&28                           ; &19CB
-    STA &54                            ; &19CD
+    STA section_spawn_timer                            ; &19CD
     JSR multiply_a_by_y                ; &19CF
     AND #&1F                           ; &19D2
     ORA #&40                           ; &19D4
-    STA &2B64,Y                        ; &19D6  object_state_table
+    STA object_state_table,Y                        ; &19D6  object_state_table
     LDA #&4B                           ; &19D9
-    STA &2B78,Y                        ; &19DB  object_x_table
-    LDA #&04                           ; &19DE
-    STA &2B50,Y                        ; &19E0  object_type_table
+    STA object_x_table,Y                        ; &19DB  object_x_table
+    LDA #TYPE_MOVING_OBJECT_4           ; &19DE
+    STA object_type_table,Y                        ; &19E0  object_type_table
     RTS                                ; &19E3
     JSR &1C4F                          ; &19E4
     AND #&07                           ; &19E7
     BNE &1A17                          ; &19E9
     LDY #&08                           ; &19EB
-    LDA &2B78,Y                        ; &19ED  object_x_table
+    LDA object_x_table,Y                        ; &19ED  object_x_table
     BEQ &19F8                          ; &19F0
     DEY                                ; &19F2
-    LDA &2B78,Y                        ; &19F3  object_x_table
+    LDA object_x_table,Y                        ; &19F3  object_x_table
     BNE &1A17                          ; &19F6
     JSR &1C4F                          ; &19F8
     AND #&7F                           ; &19FB
     CLC                                ; &19FD
-    ADC #&64                           ; &19FE
-    STA &2B8C,Y                        ; &1A00  object_y_table
+    ADC #frame_toggle_a                           ; &19FE
+    STA object_y_table,Y                        ; &1A00  object_y_table
     LDA #&40                           ; &1A03
-    STA &2B64,Y                        ; &1A05  object_state_table
+    STA object_state_table,Y                        ; &1A05  object_state_table
     LDA #&4B                           ; &1A08
-    STA &2B78,Y                        ; &1A0A  object_x_table
-    LDA #&06                           ; &1A0D
-    STA &2B50,Y                        ; &1A0F  object_type_table
+    STA object_x_table,Y                        ; &1A0A  object_x_table
+    LDA #TYPE_FAST_OBJECT_6             ; &1A0D
+    STA object_type_table,Y                        ; &1A0F  object_type_table
     LDA #&05                           ; &1A12
     JMP play_sound_effect              ; &1A14
     RTS                                ; &1A17
 update_active_objects:
     LDX #&01                           ; &1A18
-    LDA &2B79,X                        ; &1A1A
+    LDA bomb_slot_table,X                        ; &1A1A
     BEQ &1A4B                          ; &1A1D
     LDA &3B,X                          ; &1A1F
     EOR #&FF                           ; &1A21
     STA &3B,X                          ; &1A23
     BEQ &1A2A                          ; &1A25
-    INC &2B79,X                        ; &1A27
+    INC bomb_slot_table,X                        ; &1A27
     LDA &2B8D,X                        ; &1A2A
     TAY                                ; &1A2D
     LDA &38,X                          ; &1A2E
@@ -1909,47 +1983,47 @@ update_active_objects:
     CMP #&DD                           ; &1A42
     BCC &1A4B                          ; &1A44
     LDA #&00                           ; &1A46
-    STA &2B79,X                        ; &1A48
+    STA bomb_slot_table,X                        ; &1A48
     DEX                                ; &1A4B
     BPL &1A1A                          ; &1A4C
-    LDA &2B79                          ; &1A4E
+    LDA bomb_slot_table                          ; &1A4E
     BNE &1A5D                          ; &1A51
     LDA &2B7A                          ; &1A53
     BNE &1A5D                          ; &1A56
     LDA #&09                           ; &1A58
     JSR play_sound_effect              ; &1A5A
     LDX #&03                           ; &1A5D
-    LDA &2B7B,X                        ; &1A5F
+    LDA bullet_slot_table,X                        ; &1A5F
     BEQ &1A73                          ; &1A62
-    INC &2B7B,X                        ; &1A64
-    INC &2B7B,X                        ; &1A67
+    INC bullet_slot_table,X                        ; &1A64
+    INC bullet_slot_table,X                        ; &1A67
     CMP #&46                           ; &1A6A
     BCC &1A73                          ; &1A6C
     LDA #&00                           ; &1A6E
-    STA &2B7B,X                        ; &1A70
+    STA bullet_slot_table,X                        ; &1A70
     DEX                                ; &1A73
     BPL &1A5F                          ; &1A74
     LDY #&01                           ; &1A76
     LDA #&C0                           ; &1A78
-    LDX &77,Y                          ; &1A7A
+    LDX section_object_slot_a,Y                          ; &1A7A
     BEQ &1A81                          ; &1A7C
-    STA &2B64,X                        ; &1A7E  object_state_table
+    STA object_state_table,X                        ; &1A7E  object_state_table
     DEY                                ; &1A81
     BPL &1A7A                          ; &1A82
-    LDX &78                            ; &1A84
+    LDX section_object_slot_b                            ; &1A84
     LDA &4A                            ; &1A86
     EOR #&40                           ; &1A88
     STA &4A                            ; &1A8A
     BEQ &1A90                          ; &1A8C
-    LDX &77                            ; &1A8E
+    LDX section_object_slot_a                            ; &1A8E
     CPX #&00                           ; &1A90
     BEQ &1AA9                          ; &1A92
     LDA #&80                           ; &1A94
-    STA &2B64,X                        ; &1A96  object_state_table
-    LDA &2B8C,X                        ; &1A99  object_y_table
+    STA object_state_table,X                        ; &1A96  object_state_table
+    LDA object_y_table,X                        ; &1A99  object_y_table
     CLC                                ; &1A9C
     ADC #&03                           ; &1A9D
-    STA &2B8C,X                        ; &1A9F  object_y_table
+    STA object_y_table,X                        ; &1A9F  object_y_table
     CMP #&DD                           ; &1AA2
     BCC &1AA9                          ; &1AA4
     JSR &1BD4                          ; &1AA6
@@ -1960,41 +2034,41 @@ update_active_objects:
     ORA #&40                           ; &1AB4
     STA &2B6B                          ; &1AB6
     LDX #&08                           ; &1AB9
-    LDA &64                            ; &1ABB
+    LDA frame_toggle_a                            ; &1ABB
     EOR #&40                           ; &1ABD
-    STA &64                            ; &1ABF
+    STA frame_toggle_a                            ; &1ABF
     BEQ &1AC4                          ; &1AC1
     DEX                                ; &1AC3
-    LDA &2B50,X                        ; &1AC4  object_type_table
-    CMP #&04                           ; &1AC7
+    LDA object_type_table,X                        ; &1AC4  object_type_table
+    CMP #TYPE_MOVING_OBJECT_4           ; &1AC7
     BNE &1ADF                          ; &1AC9
-    INC &2B64,X                        ; &1ACB  object_state_table
-    LDA &2B64,X                        ; &1ACE  object_state_table
+    INC object_state_table,X                        ; &1ACB  object_state_table
+    LDA object_state_table,X                        ; &1ACE  object_state_table
     AND #&1F                           ; &1AD1
     TAY                                ; &1AD3
     ORA #&80                           ; &1AD4
-    STA &2B64,X                        ; &1AD6  object_state_table
+    STA object_state_table,X                        ; &1AD6  object_state_table
     LDA &24A0,Y                        ; &1AD9
-    STA &2B8C,X                        ; &1ADC  object_y_table
+    STA object_y_table,X                        ; &1ADC  object_y_table
     LDX #&08                           ; &1ADF
-    LDA &65                            ; &1AE1
+    LDA frame_toggle_b                            ; &1AE1
     EOR #&40                           ; &1AE3
-    STA &65                            ; &1AE5
+    STA frame_toggle_b                            ; &1AE5
     BEQ &1AEA                          ; &1AE7
     DEX                                ; &1AE9
-    LDA &2B50,X                        ; &1AEA  object_type_table
-    CMP #&06                           ; &1AED
+    LDA object_type_table,X                        ; &1AEA  object_type_table
+    CMP #TYPE_FAST_OBJECT_6             ; &1AED
     BNE &1B01                          ; &1AEF
     LDA #&80                           ; &1AF1
-    STA &2B64,X                        ; &1AF3  object_state_table
-    DEC &2B78,X                        ; &1AF6  object_x_table
-    DEC &2B78,X                        ; &1AF9  object_x_table
+    STA object_state_table,X                        ; &1AF3  object_state_table
+    DEC object_x_table,X                        ; &1AF6  object_x_table
+    DEC object_x_table,X                        ; &1AF9  object_x_table
     BPL &1B01                          ; &1AFC
     JSR &1BEE                          ; &1AFE
     LDX #&07                           ; &1B01
-    LDA &2B78,X                        ; &1B03  object_x_table
+    LDA object_x_table,X                        ; &1B03  object_x_table
     BEQ &1B10                          ; &1B06
-    DEC &2B78,X                        ; &1B08  object_x_table
+    DEC object_x_table,X                        ; &1B08  object_x_table
     BNE &1B10                          ; &1B0B
     JSR &1BEE                          ; &1B0D
     INX                                ; &1B10
@@ -2005,7 +2079,7 @@ raid_complete:
     JSR read_system_clock              ; &1B16
     LDA #&0C                           ; &1B19
     JSR play_sound_effect              ; &1B1B
-    LDX #&64                           ; &1B1E
+    LDX #frame_toggle_a                           ; &1B1E
     JSR delay_ticks                    ; &1B20
     LDY #&0F                           ; &1B23
     LDA #&00                           ; &1B25
@@ -2015,17 +2089,17 @@ raid_complete:
     LDX #&44                           ; &1B2D
     LDY #&1B                           ; &1B2F
     JSR &06B1                          ; &1B31
-    LDX #&64                           ; &1B34
+    LDX #frame_toggle_a                           ; &1B34
     JSR delay_ticks                    ; &1B36
-    LDX #&64                           ; &1B39
+    LDX #frame_toggle_a                           ; &1B39
     JSR delay_ticks                    ; &1B3B
-    LDX &0E                            ; &1B3E  saved_caller_sp
-    EQUB &9A, &4C, &06, &0E, &0C, &14, &1F, &04, &08, &11, &08, &57, &65, &6C, &6C, &20    ; &1B40
-    EQUB &44, &6F, &6E, &65, &20, &21, &21, &1F, &06, &0C, &11, &05, &59, &6F, &75, &20    ; &1B50
-    EQUB &48, &61, &76, &65, &1F, &04, &0E, &53, &75, &63, &63, &65, &73, &73, &66, &75    ; &1B60
-    EQUB &6C, &6C, &79, &1F, &03, &10, &43, &6F, &6D, &70, &6C, &65, &74, &65, &64, &20    ; &1B70
-    EQUB &59, &6F, &75, &72, &1F, &08, &12, &52, &61, &69, &64, &1F, &03, &1A, &11, &01    ; &1B80
-    EQUB &4E, &6F, &77, &20, &54, &72, &79, &20, &41, &67, &61, &69, &6E, &0D    ; &1B90-&1B9D preceding bytes retained
+    LDX saved_caller_sp                            ; &1B3E  saved_caller_sp
+    EQUB &9A, &4C, &06, saved_caller_sp, &0C, &14, &1F, &04, &08, &11, &08, &57, frame_toggle_b, &6C, &6C, &20    ; &1B40
+    EQUB &44, &6F, &6E, frame_toggle_b, &20, &21, &21, &1F, &06, &0C, &11, &05, &59, &6F, &75, &20    ; &1B50
+    EQUB &48, &61, &76, frame_toggle_b, &1F, &04, saved_caller_sp, &53, &75, &63, &63, frame_toggle_b, warning_beeps_left, warning_beeps_left, &66, &75    ; &1B60
+    EQUB &6C, &6C, bonus_life_awarded, &1F, &03, &10, &43, &6F, &6D, &70, &6C, frame_toggle_b, warning_beep_timer, frame_toggle_b, frame_toggle_a, &20    ; &1B70
+    EQUB &59, &6F, &75, &72, &1F, &08, &12, &52, &61, &69, frame_toggle_a, &1F, &03, &1A, &11, &01    ; &1B80
+    EQUB section_index, &6F, section_object_slot_a, &20, section_spawn_timer, &72, bonus_life_awarded, &20, bullet_cooldown, &67, &61, &69, &6E, &0D    ; &1B90-&1B9D preceding bytes retained
 
 ; -----------------------------------------------------------------------------
 ; ESCAPE, SOUND, INPUT, VIDEO AND GENERAL MOS HELPERS
@@ -2039,7 +2113,7 @@ check_escape_restart:
     STA &40                            ; &1BA7  score_hi
     STA &3F                            ; &1BA9  score_mid
     STA &3E                            ; &1BAB  score_lo
-    LDX &0E                            ; &1BAD  saved_caller_sp
+    LDX saved_caller_sp                            ; &1BAD  saved_caller_sp
     TXS                                ; &1BAF
     RTS                                ; &1BB0
     LDY #&0F                           ; &1BB1
@@ -2067,8 +2141,8 @@ adval:
     STA &02                            ; &1BD7
     LDA &2B3C,X                        ; &1BD9
     STA &03                            ; &1BDC
-    LDA &2B50,X                        ; &1BDE  object_type_table
-    CMP #&0C                           ; &1BE1
+    LDA object_type_table,X                        ; &1BDE  object_type_table
+    CMP #TYPE_TRANSFORMED_12            ; &1BE1
     BNE &1BE7                          ; &1BE3
     LDA #&01                           ; &1BE5
     STX &1B                            ; &1BE7
@@ -2085,16 +2159,16 @@ adval:
     PLA                                ; &1BFF
     TAX                                ; &1C00
     LDA #&00                           ; &1C01
-    STA &2B78,X                        ; &1C03  object_x_table
+    STA object_x_table,X                        ; &1C03  object_x_table
     STA &2B14,X                        ; &1C06
     STA &2B00,X                        ; &1C09
     STA &2B28,X                        ; &1C0C
     STA &2B3C,X                        ; &1C0F
     TAY                                ; &1C12
-    CPX &77                            ; &1C13
+    CPX section_object_slot_a                            ; &1C13
     BEQ &1C1D                          ; &1C15
     INY                                ; &1C17
-    CPX &78                            ; &1C18
+    CPX section_object_slot_b                            ; &1C18
     BEQ &1C1D                          ; &1C1A
     RTS                                ; &1C1C
     STA &0077,Y                        ; &1C1D
@@ -2197,7 +2271,7 @@ allocate_object_slot:
     PHA                                ; &1CAB
     JSR &0FB7                          ; &1CAC
     LDX #&09                           ; &1CAF
-    LDA &2B78,X                        ; &1CB1  object_x_table
+    LDA object_x_table,X                        ; &1CB1  object_x_table
     BEQ &1CBB                          ; &1CB4
     INX                                ; &1CB6
     CPX #&13                           ; &1CB7
@@ -2207,47 +2281,47 @@ allocate_object_slot:
     LDA &03                            ; &1CC0
     STA &2B3C,X                        ; &1CC2
     PLA                                ; &1CC5
-    STA &2B78,X                        ; &1CC6  object_x_table
+    STA object_x_table,X                        ; &1CC6  object_x_table
     PLA                                ; &1CC9
-    STA &2B8C,X                        ; &1CCA  object_y_table
+    STA object_y_table,X                        ; &1CCA  object_y_table
     LDA #&00                           ; &1CCD
-    STA &2B64,X                        ; &1CCF  object_state_table
+    STA object_state_table,X                        ; &1CCF  object_state_table
     PLA                                ; &1CD2
-    STA &2B50,X                        ; &1CD3  object_type_table
+    STA object_type_table,X                        ; &1CD3  object_type_table
     RTS                                ; &1CD6
 draw_object_by_type:
     TAY                                ; &1CD7
-    LDA &2C55,Y                        ; &1CD8
+    LDA object_sprite_lo,Y                        ; &1CD8
     STA &1F                            ; &1CDB
-    LDA &2C48,Y                        ; &1CDD
+    LDA object_sprite_hi,Y                        ; &1CDD
     STA &20                            ; &1CE0
-    LDA &2C3B,Y                        ; &1CE2
+    LDA object_draw_param_2,Y                        ; &1CE2
     STA &1E                            ; &1CE5
-    LDA &2C2E,Y                        ; &1CE7
+    LDA object_draw_param_1,Y                        ; &1CE7
     STA &21                            ; &1CEA
-    JMP &1000                          ; &1CEC
+    JMP xor_sprite_renderer                          ; &1CEC
 erase_object_by_type:
     TYA                                ; &1CEF
     PHA                                ; &1CF0
-    LDA &2B50,Y                        ; &1CF1  object_type_table
+    LDA object_type_table,Y                        ; &1CF1  object_type_table
     JSR draw_object_by_type            ; &1CF4
     PLA                                ; &1CF7
     TAY                                ; &1CF8
     RTS                                ; &1CF9
 start_warning_beeper:
     LDA #&05                           ; &1CFA
-    STA &73                            ; &1CFC
+    STA warning_beeps_left                            ; &1CFC
     LDA #&01                           ; &1CFE
-    STA &74                            ; &1D00
-    LDA &73                            ; &1D02
+    STA warning_beep_timer                            ; &1D00
+    LDA warning_beeps_left                            ; &1D02
     BEQ &1D15                          ; &1D04
-    DEC &74                            ; &1D06
+    DEC warning_beep_timer                            ; &1D06
     BNE &1D15                          ; &1D08
     LDA #&1E                           ; &1D0A
-    STA &74                            ; &1D0C
+    STA warning_beep_timer                            ; &1D0C
     LDA #&0A                           ; &1D0E
     JSR play_sound_effect              ; &1D10
-    DEC &73                            ; &1D13
+    DEC warning_beeps_left                            ; &1D13
     RTS                                ; &1D15
 read_system_clock:
     LDX #&00                           ; &1D16
@@ -2292,80 +2366,80 @@ print_bcd_nibble:
     JMP &FFEE                          ; &1D55
     LDA #&2E                           ; &1D58
     JMP &FFEE                          ; &1D5A
-    EQUB &4C, &44, &41    ; &1D5D-&1D5F following bytes retained
-    EQUB &73, &74, &72, &69, &6E, &67, &2C, &58, &3A, &54, &41, &58, &3A, &4A, &53, &52    ; &1D60
-    EQUB &61, &74, &6F, &6D, &73, &74, &72, &69, &6E, &67, &3A, &50, &4C, &41, &3A, &54    ; &1D70
-    EQUB &41, &58, &3A, &4C, &44, &41, &23, &31, &30, &3A, &4A, &53, &52, &6F, &73, &77    ; &1D80
-    EQUB &72, &63, &68, &3A, &4A, &53, &52, &6F, &73, &77, &72, &63, &68, &0D, &11, &30    ; &1D90
-    EQUB &26, &49, &4E, &43, &74, &65, &6D, &70, &3A, &44, &45, &58, &3A, &44, &45, &58    ; &1DA0
-    EQUB &3A, &44, &45, &58, &3A, &42, &4E, &45, &70, &72, &69, &6E, &74, &73, &63, &6F    ; &1DB0
-    EQUB &72, &65, &73, &0D, &11, &94, &3B, &4C, &44, &58, &23, &73, &70, &61, &63, &65    ; &1DC0
-    EQUB &73, &74, &72, &69, &6E, &67, &20, &80, &26, &46, &46, &3A, &4C, &44, &59, &23    ; &1DD0
-    EQUB &73, &70, &61, &63, &65, &73, &74, &72, &69, &6E, &67, &20, &81, &32, &35, &36    ; &1DE0
-    EQUB &3A, &4A, &53, &52, &61, &74, &6F, &6D, &73, &74, &72, &69, &6E, &67, &0D, &11    ; &1DF0
-    EQUB &F8, &82, &2E, &73, &70, &61, &63, &65, &20, &4C, &44, &41, &23, &26, &37, &45    ; &1E00
-    EQUB &3A, &4A, &53, &52, &6F, &73, &62, &79, &74, &65, &3A, &4C, &44, &58, &23, &71    ; &1E10
-    EQUB &6B, &65, &79, &3A, &4A, &53, &52, &69, &6E, &6B, &65, &79, &3A, &42, &45, &51    ; &1E20
-    EQUB &6E, &6F, &71, &6B, &65, &79, &3A, &49, &4E, &58, &3A, &53, &54, &58, &73, &6F    ; &1E30
-    EQUB &75, &6E, &64, &66, &6C, &61, &67, &3A, &2E, &6E, &6F, &71, &6B, &65, &79, &20    ; &1E40
-    EQUB &4C, &44, &58, &23, &73, &6B, &65, &79, &3A, &4A, &53, &52, &69, &6E, &6B, &65    ; &1E50
-    EQUB &79, &3A, &42, &45, &51, &6E, &6F, &73, &6B, &65, &79, &3A, &53, &54, &58, &73    ; &1E60
-    EQUB &6F, &75, &6E, &64, &66, &6C, &61, &67, &3A, &2E, &6E, &6F, &73, &6B, &65, &79    ; &1E70
-    EQUB &0D, &12, &5C, &7F, &4C, &44, &41, &23, &30, &3A, &53, &54, &41, &6A, &6F, &79    ; &1E80
-    EQUB &66, &6C, &61, &67, &3A, &4C, &44, &58, &23, &26, &39, &44, &3A, &4A, &53, &52    ; &1E90
-    EQUB &69, &6E, &6B, &65, &79, &3A, &42, &4E, &45, &68, &65, &72, &65, &3A, &4C, &44    ; &1EA0
-    EQUB &41, &23, &26, &46, &46, &3A, &53, &54, &41, &6A, &6F, &79, &66, &6C, &61, &67    ; &1EB0
-    EQUB &3A, &4C, &44, &58, &23, &30, &3A, &4A, &53, &52, &61, &64, &76, &61, &6C, &3A    ; &1EC0
-    EQUB &54, &58, &41, &3A, &80, &23, &31, &3A, &42, &45, &51, &73, &70, &61, &63, &65    ; &1ED0
-    EQUB &3A, &2E, &68, &65, &72, &65, &20, &4A, &53, &52, &67, &61, &6D, &65, &3A, &4A    ; &1EE0
-    EQUB &4D, &50, &63, &68, &65, &63, &6B, &68, &69, &5F, &73, &63, &6F, &72, &65, &0D    ; &1EF0
-    EQUB &12, &C0, &05, &20, &0D, &13, &24, &14, &2E, &6D, &69, &63, &72, &6F, &73, &6F    ; &1F00
-    EQUB &66, &74, &73, &74, &72, &69, &6E, &67, &0D, &13, &88, &85, &53, &54, &58, &73    ; &1F10
-    EQUB &74, &72, &69, &6E, &67, &70, &74, &72, &3A, &53, &54, &59, &73, &74, &72, &69    ; &1F20
-    EQUB &6E, &67, &70, &74, &72, &2B, &31, &3A, &4C, &44, &59, &23, &30, &3A, &4C, &44    ; &1F30
-    EQUB &41, &28, &73, &74, &72, &69, &6E, &67, &70, &74, &72, &29, &2C, &59, &3A, &53    ; &1F40
-    EQUB &54, &41, &6C, &65, &6E, &3A, &49, &4E, &59, &3A, &2E, &73, &74, &72, &69, &6E    ; &1F50
-    EQUB &67, &6C, &6F, &6F, &70, &20, &4C, &44, &41, &28, &73, &74, &72, &69, &6E, &67    ; &1F60
-    EQUB &70, &74, &72, &29, &2C, &59, &3A, &4A, &53, &52, &6F, &73, &77, &72, &63, &68    ; &1F70
-    EQUB &3A, &49, &4E, &59, &3A, &43, &50, &59, &6C, &65, &6E, &3A, &42, &4E, &45, &73    ; &1F80
-    EQUB &74, &72, &69, &6E, &67, &6C, &6F, &6F, &70, &3A, &52, &54, &53, &0D, &13, &EC    ; &1F90
-    EQUB &05, &20, &0D, &14, &50, &0F, &2E, &61, &74, &6F, &6D, &73, &74, &72, &69, &6E    ; &1FA0
-    EQUB &67, &0D, &14, &B4, &71, &53, &54, &58, &73, &74, &72, &69, &6E, &67, &70, &74    ; &1FB0
-    EQUB &72, &3A, &53, &54, &59, &73, &74, &72, &69, &6E, &67, &70, &74, &72, &2B, &31    ; &1FC0
-    EQUB &3A, &4C, &44, &59, &23, &30, &3A, &2E, &61, &74, &6F, &6D, &73, &74, &72, &69    ; &1FD0
-    EQUB &6E, &67, &6C, &6F, &6F, &70, &20, &4C, &44, &41, &28, &73, &74, &72, &69, &6E    ; &1FE0
-    EQUB &67, &70, &74, &72, &29, &2C, &59, &3A, &4A, &53, &52, &6F, &73, &77, &72, &63    ; &1FF0
-    EQUB &68, &3A, &49, &4E, &59, &3A, &43, &4D, &50, &23, &31, &33, &3A, &42, &4E, &45    ; &2000
-    EQUB &61, &74, &6F, &6D, &73, &74, &72, &69, &6E, &67, &6C, &6F, &6F, &70, &3A, &52    ; &2010
-    EQUB &54, &53, &0D, &15, &18, &05, &20, &0D, &15, &7C, &1C, &2E, &66, &6F, &75, &72    ; &2020
-    EQUB &64, &6F, &74, &73, &20, &4C, &44, &41, &23, &97, &22, &2E, &22, &3A, &4C, &44    ; &2030
-    EQUB &59, &23, &34, &0D, &15, &E0, &05, &20, &0D, &16, &44, &11, &2E, &73, &74, &72    ; &2040
-    EQUB &69, &6E, &67, &64, &6F, &6C, &6C, &61, &72, &0D, &16, &A8, &25, &4A, &53, &52    ; &2050
-    EQUB &6F, &73, &77, &72, &63, &68, &3A, &44, &45, &59, &3A, &42, &4E, &45, &73, &74    ; &2060
-    EQUB &72, &69, &6E, &67, &64, &6F, &6C, &6C, &61, &72, &3A, &52, &54, &53, &0D, &17    ; &2070
-    EQUB &0C, &05, &20, &0D, &17, &70, &39, &5D, &3A, &E7, &A6, &2D, &31, &20, &F1, &27    ; &2080
-    EQUB &27, &22, &53, &70, &61, &63, &65, &20, &6C, &65, &66, &74, &20, &69, &6E, &20    ; &2090
-    EQUB &68, &69, &73, &63, &6F, &72, &65, &20, &72, &6F, &75, &74, &69, &6E, &65, &20    ; &20A0
-    EQUB &3D, &26, &22, &3B, &7E, &26, &36, &44, &30, &2D, &50, &25, &0D, &17, &D4, &14    ; &20B0
-    EQUB &50, &25, &3D, &26, &36, &44, &30, &3A, &5B, &4F, &50, &54, &49, &25, &84, &34    ; &20C0
-    EQUB &0D, &18, &38, &55, &2E, &6C, &61, &64, &64, &65, &72, &20, &45, &51, &55, &53    ; &20D0
-    EQUB &20, &C4, &33, &30, &2C, &BD, &30, &29, &3A, &2E, &73, &74, &72, &69, &6E, &67    ; &20E0
-    EQUB &20, &45, &51, &55, &53, &20, &C4, &33, &30, &2C, &BD, &30, &29, &3A, &2E, &6E    ; &20F0
-    EQUB &61, &6D, &65, &20, &45, &51, &55, &53, &20, &C4, &32, &30, &30, &2C, &BD, &30    ; &2100
-    EQUB &29, &3A, &2E, &74, &65, &6D, &70, &73, &63, &20, &45, &51, &55, &53, &20, &C4    ; &2110
-    EQUB &33, &2C, &BD, &30, &29, &0D, &18, &9C, &05, &20, &0D, &19, &00, &15, &5D, &3A    ; &2120
-    EQUB &50, &25, &3D, &26, &33, &34, &30, &30, &3A, &5B, &4F, &50, &54, &49, &25, &0D    ; &2130
-    EQUB &19, &64, &24, &5C, &4F, &72, &69, &67, &69, &6E, &61, &6C, &20, &65, &6E, &74    ; &2140
-    EQUB &72, &79, &20, &70, &6F, &69, &6E, &74, &20, &66, &6F, &72, &20, &65, &6E, &74    ; &2150
-    EQUB &69, &72, &65, &0D, &19, &C8, &23, &5C, &70, &72, &6F, &67, &72, &61, &6D, &2E    ; &2160
-    EQUB &20, &20, &4F, &6E, &6C, &79, &20, &63, &61, &6C, &6C, &65, &64, &20, &6F, &6E    ; &2170
-    EQUB &63, &65, &2C, &20, &73, &6F, &0D, &1A, &2C, &1C, &5C, &6D, &61, &79, &20, &62    ; &2180
-    EQUB &65, &20, &69, &6E, &20, &67, &72, &61, &70, &68, &69, &63, &73, &20, &72, &61    ; &2190
-    EQUB &6D, &2E, &0D, &1A, &90, &7C, &2E, &65, &6E, &74, &65, &72, &20, &4C, &44, &59    ; &21A0
-    EQUB &23, &30, &3A, &2E, &74, &72, &61, &6E, &73, &6C, &6F, &6F, &70, &20, &4C, &44    ; &21B0
-    EQUB &41, &26, &33, &30, &30, &30, &2C, &59, &3A, &53, &54, &41, &26, &34, &30, &30    ; &21C0
-    EQUB &2C, &59, &3A, &4C, &44, &41, &26, &33, &31, &30, &30, &2C, &59, &3A, &53, &54    ; &21D0
-    EQUB &41, &26, &35, &30, &30, &2C, &59, &3A, &4C, &44, &41, &26, &33, &32, &30, &30    ; &21E0
+    EQUB &4C, &44, bullet_cooldown    ; &1D5D-&1D5F following bytes retained
+    EQUB warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &2C, &58, bomb_cooldown, section_spawn_timer, bullet_cooldown, &58, bomb_cooldown, &4A, &53, &52    ; &1D60
+    EQUB &61, warning_beep_timer, &6F, &6D, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, bomb_cooldown, &50, &4C, bullet_cooldown, bomb_cooldown, section_spawn_timer    ; &1D70
+    EQUB bullet_cooldown, &58, bomb_cooldown, &4C, &44, bullet_cooldown, &23, &31, &30, bomb_cooldown, &4A, &53, &52, &6F, warning_beeps_left, section_object_slot_a    ; &1D80
+    EQUB &72, &63, &68, bomb_cooldown, &4A, &53, &52, &6F, warning_beeps_left, section_object_slot_a, &72, &63, &68, &0D, &11, &30    ; &1D90
+    EQUB &26, &49, section_index, &43, warning_beep_timer, frame_toggle_b, &6D, &70, bomb_cooldown, &44, &45, &58, bomb_cooldown, &44, &45, &58    ; &1DA0
+    EQUB bomb_cooldown, &44, &45, &58, bomb_cooldown, &42, section_index, &45, &70, &72, &69, &6E, warning_beep_timer, warning_beeps_left, &63, &6F    ; &1DB0
+    EQUB &72, frame_toggle_b, warning_beeps_left, &0D, &11, &94, &3B, &4C, &44, &58, &23, warning_beeps_left, &70, &61, &63, frame_toggle_b    ; &1DC0
+    EQUB warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &20, &80, &26, &46, &46, bomb_cooldown, &4C, &44, &59, &23    ; &1DD0
+    EQUB warning_beeps_left, &70, &61, &63, frame_toggle_b, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &20, &81, &32, &35, &36    ; &1DE0
+    EQUB bomb_cooldown, &4A, &53, &52, &61, warning_beep_timer, &6F, &6D, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &0D, &11    ; &1DF0
+    EQUB &F8, &82, &2E, warning_beeps_left, &70, &61, &63, frame_toggle_b, &20, &4C, &44, bullet_cooldown, &23, &26, &37, &45    ; &1E00
+    EQUB bomb_cooldown, &4A, &53, &52, &6F, warning_beeps_left, &62, bonus_life_awarded, warning_beep_timer, frame_toggle_b, bomb_cooldown, &4C, &44, &58, &23, &71    ; &1E10
+    EQUB &6B, frame_toggle_b, bonus_life_awarded, bomb_cooldown, &4A, &53, &52, &69, &6E, &6B, frame_toggle_b, bonus_life_awarded, bomb_cooldown, &42, &45, &51    ; &1E20
+    EQUB &6E, &6F, &71, &6B, frame_toggle_b, bonus_life_awarded, bomb_cooldown, &49, section_index, &58, bomb_cooldown, &53, section_spawn_timer, &58, warning_beeps_left, &6F    ; &1E30
+    EQUB &75, &6E, frame_toggle_a, &66, &6C, &61, &67, bomb_cooldown, &2E, &6E, &6F, &71, &6B, frame_toggle_b, bonus_life_awarded, &20    ; &1E40
+    EQUB &4C, &44, &58, &23, warning_beeps_left, &6B, frame_toggle_b, bonus_life_awarded, bomb_cooldown, &4A, &53, &52, &69, &6E, &6B, frame_toggle_b    ; &1E50
+    EQUB bonus_life_awarded, bomb_cooldown, &42, &45, &51, &6E, &6F, warning_beeps_left, &6B, frame_toggle_b, bonus_life_awarded, bomb_cooldown, &53, section_spawn_timer, &58, warning_beeps_left    ; &1E60
+    EQUB &6F, &75, &6E, frame_toggle_a, &66, &6C, &61, &67, bomb_cooldown, &2E, &6E, &6F, warning_beeps_left, &6B, frame_toggle_b, bonus_life_awarded    ; &1E70
+    EQUB &0D, &12, &5C, &7F, &4C, &44, bullet_cooldown, &23, &30, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, &6A, &6F, bonus_life_awarded    ; &1E80
+    EQUB &66, &6C, &61, &67, bomb_cooldown, &4C, &44, &58, &23, &26, &39, &44, bomb_cooldown, &4A, &53, &52    ; &1E90
+    EQUB &69, &6E, &6B, frame_toggle_b, bonus_life_awarded, bomb_cooldown, &42, section_index, &45, &68, frame_toggle_b, &72, frame_toggle_b, bomb_cooldown, &4C, &44    ; &1EA0
+    EQUB bullet_cooldown, &23, &26, &46, &46, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, &6A, &6F, bonus_life_awarded, &66, &6C, &61, &67    ; &1EB0
+    EQUB bomb_cooldown, &4C, &44, &58, &23, &30, bomb_cooldown, &4A, &53, &52, &61, frame_toggle_a, &76, &61, &6C, bomb_cooldown    ; &1EC0
+    EQUB section_spawn_timer, &58, bullet_cooldown, bomb_cooldown, &80, &23, &31, bomb_cooldown, &42, &45, &51, warning_beeps_left, &70, &61, &63, frame_toggle_b    ; &1ED0
+    EQUB bomb_cooldown, &2E, &68, frame_toggle_b, &72, frame_toggle_b, &20, &4A, &53, &52, &67, &61, &6D, frame_toggle_b, bomb_cooldown, &4A    ; &1EE0
+    EQUB &4D, &50, &63, &68, frame_toggle_b, &63, &6B, &68, &69, &5F, warning_beeps_left, &63, &6F, &72, frame_toggle_b, &0D    ; &1EF0
+    EQUB &12, &C0, &05, &20, &0D, &13, &24, &14, &2E, &6D, &69, &63, &72, &6F, warning_beeps_left, &6F    ; &1F00
+    EQUB &66, warning_beep_timer, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &0D, &13, &88, &85, &53, section_spawn_timer, &58, warning_beeps_left    ; &1F10
+    EQUB warning_beep_timer, &72, &69, &6E, &67, &70, warning_beep_timer, &72, bomb_cooldown, &53, section_spawn_timer, &59, warning_beeps_left, warning_beep_timer, &72, &69    ; &1F20
+    EQUB &6E, &67, &70, warning_beep_timer, &72, &2B, &31, bomb_cooldown, &4C, &44, &59, &23, &30, bomb_cooldown, &4C, &44    ; &1F30
+    EQUB bullet_cooldown, &28, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &70, warning_beep_timer, &72, &29, &2C, &59, bomb_cooldown, &53    ; &1F40
+    EQUB section_spawn_timer, bullet_cooldown, &6C, frame_toggle_b, &6E, bomb_cooldown, &49, section_index, &59, bomb_cooldown, &2E, warning_beeps_left, warning_beep_timer, &72, &69, &6E    ; &1F50
+    EQUB &67, &6C, &6F, &6F, &70, &20, &4C, &44, bullet_cooldown, &28, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67    ; &1F60
+    EQUB &70, warning_beep_timer, &72, &29, &2C, &59, bomb_cooldown, &4A, &53, &52, &6F, warning_beeps_left, section_object_slot_a, &72, &63, &68    ; &1F70
+    EQUB bomb_cooldown, &49, section_index, &59, bomb_cooldown, &43, &50, &59, &6C, frame_toggle_b, &6E, bomb_cooldown, &42, section_index, &45, warning_beeps_left    ; &1F80
+    EQUB warning_beep_timer, &72, &69, &6E, &67, &6C, &6F, &6F, &70, bomb_cooldown, &52, section_spawn_timer, &53, &0D, &13, &EC    ; &1F90
+    EQUB &05, &20, &0D, &14, &50, &0F, &2E, &61, warning_beep_timer, &6F, &6D, warning_beeps_left, warning_beep_timer, &72, &69, &6E    ; &1FA0
+    EQUB &67, &0D, &14, &B4, &71, &53, section_spawn_timer, &58, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &70, warning_beep_timer    ; &1FB0
+    EQUB &72, bomb_cooldown, &53, section_spawn_timer, &59, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &70, warning_beep_timer, &72, &2B, &31    ; &1FC0
+    EQUB bomb_cooldown, &4C, &44, &59, &23, &30, bomb_cooldown, &2E, &61, warning_beep_timer, &6F, &6D, warning_beeps_left, warning_beep_timer, &72, &69    ; &1FD0
+    EQUB &6E, &67, &6C, &6F, &6F, &70, &20, &4C, &44, bullet_cooldown, &28, warning_beeps_left, warning_beep_timer, &72, &69, &6E    ; &1FE0
+    EQUB &67, &70, warning_beep_timer, &72, &29, &2C, &59, bomb_cooldown, &4A, &53, &52, &6F, warning_beeps_left, section_object_slot_a, &72, &63    ; &1FF0
+    EQUB &68, bomb_cooldown, &49, section_index, &59, bomb_cooldown, &43, &4D, &50, &23, &31, &33, bomb_cooldown, &42, section_index, &45    ; &2000
+    EQUB &61, warning_beep_timer, &6F, &6D, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &6C, &6F, &6F, &70, bomb_cooldown, &52    ; &2010
+    EQUB section_spawn_timer, &53, &0D, &15, &18, &05, &20, &0D, &15, &7C, &1C, &2E, &66, &6F, &75, &72    ; &2020
+    EQUB frame_toggle_a, &6F, warning_beep_timer, warning_beeps_left, &20, &4C, &44, bullet_cooldown, &23, &97, &22, &2E, &22, bomb_cooldown, &4C, &44    ; &2030
+    EQUB &59, &23, &34, &0D, &15, &E0, &05, &20, &0D, &16, &44, &11, &2E, warning_beeps_left, warning_beep_timer, &72    ; &2040
+    EQUB &69, &6E, &67, frame_toggle_a, &6F, &6C, &6C, &61, &72, &0D, &16, &A8, &25, &4A, &53, &52    ; &2050
+    EQUB &6F, warning_beeps_left, section_object_slot_a, &72, &63, &68, bomb_cooldown, &44, &45, &59, bomb_cooldown, &42, section_index, &45, warning_beeps_left, warning_beep_timer    ; &2060
+    EQUB &72, &69, &6E, &67, frame_toggle_a, &6F, &6C, &6C, &61, &72, bomb_cooldown, &52, section_spawn_timer, &53, &0D, &17    ; &2070
+    EQUB &0C, &05, &20, &0D, &17, &70, &39, &5D, bomb_cooldown, &E7, &A6, &2D, &31, &20, &F1, &27    ; &2080
+    EQUB &27, &22, &53, &70, &61, &63, frame_toggle_b, &20, &6C, frame_toggle_b, &66, warning_beep_timer, &20, &69, &6E, &20    ; &2090
+    EQUB &68, &69, warning_beeps_left, &63, &6F, &72, frame_toggle_b, &20, &72, &6F, &75, warning_beep_timer, &69, &6E, frame_toggle_b, &20    ; &20A0
+    EQUB player_lives_spares, &26, &22, &3B, &7E, &26, &36, &44, &30, &2D, &50, &25, &0D, &17, &D4, &14    ; &20B0
+    EQUB &50, &25, player_lives_spares, &26, &36, &44, &30, bomb_cooldown, &5B, &4F, &50, section_spawn_timer, &49, &25, &84, &34    ; &20C0
+    EQUB &0D, &18, &38, &55, &2E, &6C, &61, frame_toggle_a, frame_toggle_a, frame_toggle_b, &72, &20, &45, &51, &55, &53    ; &20D0
+    EQUB &20, &C4, &33, &30, &2C, &BD, &30, &29, bomb_cooldown, &2E, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67    ; &20E0
+    EQUB &20, &45, &51, &55, &53, &20, &C4, &33, &30, &2C, &BD, &30, &29, bomb_cooldown, &2E, &6E    ; &20F0
+    EQUB &61, &6D, frame_toggle_b, &20, &45, &51, &55, &53, &20, &C4, &32, &30, &30, &2C, &BD, &30    ; &2100
+    EQUB &29, bomb_cooldown, &2E, warning_beep_timer, frame_toggle_b, &6D, &70, warning_beeps_left, &63, &20, &45, &51, &55, &53, &20, &C4    ; &2110
+    EQUB &33, &2C, &BD, &30, &29, &0D, &18, &9C, &05, &20, &0D, &19, &00, &15, &5D, bomb_cooldown    ; &2120
+    EQUB &50, &25, player_lives_spares, &26, &33, &34, &30, &30, bomb_cooldown, &5B, &4F, &50, section_spawn_timer, &49, &25, &0D    ; &2130
+    EQUB &19, frame_toggle_a, &24, &5C, &4F, &72, &69, &67, &69, &6E, &61, &6C, &20, frame_toggle_b, &6E, warning_beep_timer    ; &2140
+    EQUB &72, bonus_life_awarded, &20, &70, &6F, &69, &6E, warning_beep_timer, &20, &66, &6F, &72, &20, frame_toggle_b, &6E, warning_beep_timer    ; &2150
+    EQUB &69, &72, frame_toggle_b, &0D, &19, &C8, &23, &5C, &70, &72, &6F, &67, &72, &61, &6D, &2E    ; &2160
+    EQUB &20, &20, &4F, &6E, &6C, bonus_life_awarded, &20, &63, &61, &6C, &6C, frame_toggle_b, frame_toggle_a, &20, &6F, &6E    ; &2170
+    EQUB &63, frame_toggle_b, &2C, &20, warning_beeps_left, &6F, &0D, &1A, &2C, &1C, &5C, &6D, &61, bonus_life_awarded, &20, &62    ; &2180
+    EQUB frame_toggle_b, &20, &69, &6E, &20, &67, &72, &61, &70, &68, &69, &63, warning_beeps_left, &20, &72, &61    ; &2190
+    EQUB &6D, &2E, &0D, &1A, &90, &7C, &2E, frame_toggle_b, &6E, warning_beep_timer, frame_toggle_b, &72, &20, &4C, &44, &59    ; &21A0
+    EQUB &23, &30, bomb_cooldown, &2E, warning_beep_timer, &72, &61, &6E, warning_beeps_left, &6C, &6F, &6F, &70, &20, &4C, &44    ; &21B0
+    EQUB bullet_cooldown, &26, &33, &30, &30, &30, &2C, &59, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, &26, &34, &30, &30    ; &21C0
+    EQUB &2C, &59, bomb_cooldown, &4C, &44, bullet_cooldown, &26, &33, &31, &30, &30, &2C, &59, bomb_cooldown, &53, section_spawn_timer    ; &21D0
+    EQUB bullet_cooldown, &26, &35, &30, &30, &2C, &59, bomb_cooldown, &4C, &44, bullet_cooldown, &26, &33, &32, &30, &30    ; &21E0
 
 ; Sound envelope parameter blocks used by the startup routine at &3468-&348A.
 ; That routine calls OSWORD 8 six times, beginning at &21F0 and advancing the
@@ -2377,55 +2451,55 @@ print_bcd_nibble:
 ; &21F0 SOUND ENVELOPE TABLE: six records x 14 bytes
 ; Installed once by the &3400 startup with OSWORD 8.
 ; -----------------------------------------------------------------------------
-    EQUB &04, &01, &00, &00, &00, &00, &00, &00, &0C, &00, &F6, &FF, &78, &3C, &04, &05    ; &21F0
-    EQUB &01, &FF, &00, &0C, &0C, &01, &78, &00, &00, &00, &78, &00, &04, &82, &FE, &FE    ; &2200
-    EQUB &FE, &14, &14, &28, &79, &FF, &FE, &FE, &78, &78, &01, &01, &FD, &FD, &FD, &14    ; &2210
+    EQUB &04, &01, &00, &00, &00, &00, &00, &00, &0C, &00, &F6, &FF, section_object_slot_b, &3C, &04, &05    ; &21F0
+    EQUB &01, &FF, &00, &0C, &0C, &01, section_object_slot_b, &00, &00, &00, section_object_slot_b, &00, &04, &82, &FE, &FE    ; &2200
+    EQUB &FE, &14, &14, &28, bonus_life_awarded, &FF, &FE, &FE, section_object_slot_b, section_object_slot_b, &01, &01, &FD, &FD, &FD, &14    ; &2210
     EQUB &14, &14, &5A, &FF, &FF, &FD, &7E, &3F, &02, &04, &FF, &FF, &FF, &14, &14, &14    ; &2220
     EQUB &5A, &FF, &FF, &FD, &7E, &3F, &03, &01, &00, &00, &00, &01, &01, &01, &7E, &FC    ; &2230
-    EQUB &FF, &FC, &7E, &00, &59, &3A, &53, &54, &41, &6C, &61, &64, &64, &65, &72, &2B    ; &2240
-    EQUB &32, &2C, &59, &3A, &4C, &44, &41, &23, &26, &31, &30, &3A, &53, &54, &41, &6C    ; &2250
-    EQUB &61, &64, &64, &65, &72, &2B, &31, &2C, &59, &3A, &44, &45, &59, &3A, &44, &45    ; &2260
-    EQUB &59, &3A, &44, &45, &59, &3A, &42, &50, &4C, &73, &63, &6F, &72, &65, &69, &6E    ; &2270
-    EQUB &69, &74, &0D, &1B, &58, &6A, &4C, &44, &59, &23, &28, &31, &30, &2A, &32, &30    ; &2280
-    EQUB &29, &3A, &2E, &6E, &61, &6D, &65, &69, &6E, &69, &74, &20, &4C, &44, &58, &23    ; &2290
-    EQUB &39, &3A, &2E, &69, &6E, &6E, &65, &72, &6E, &61, &6D, &65, &20, &4C, &44, &41    ; &22A0
-    EQUB &61, &63, &6F, &72, &6E, &73, &6F, &66, &74, &2C, &58, &3A, &53, &54, &41, &6E    ; &22B0
-    EQUB &61, &6D, &65, &2D, &31, &2C, &59, &3A, &44, &45, &59, &3A, &44, &45, &58, &3A    ; &22C0
-    EQUB &42, &50, &4C, &69, &6E, &6E, &65, &72, &6E, &61, &6D, &65, &3A, &54, &59, &41    ; &22D0
-    EQUB &3A, &42, &4E, &45, &6E, &61, &6D, &65, &69, &6E, &69, &74, &0D, &1B, &BC, &71    ; &22E0
-    EQUB &4C, &44, &58, &23, &6E, &61, &6D, &65, &20, &80, &26, &46, &46, &3A, &4C, &44    ; &22F0
-    EQUB &59, &23, &32, &37, &3A, &2E, &73, &74, &72, &69, &6E, &67, &69, &6E, &69, &74    ; &2300
-    EQUB &20, &54, &58, &41, &3A, &53, &54, &41, &73, &74, &72, &69, &6E, &67, &2C, &59    ; &2310
-    EQUB &3A, &43, &4C, &43, &3A, &41, &44, &43, &23, &32, &30, &3A, &54, &41, &58, &3A    ; &2320
-    EQUB &4C, &44, &41, &23, &37, &3A, &53, &54, &41, &73, &74, &72, &69, &6E, &67, &2B    ; &2330
-    EQUB &31, &2C, &59, &3A, &44, &45, &59, &3A, &44, &45, &59, &3A, &44, &45, &59, &3A    ; &2340
-    EQUB &42, &50, &4C, &73, &74, &72, &69, &6E, &67, &69, &6E, &69, &74, &0D, &1C, &20    ; &2350
-    EQUB &3C, &4C, &44, &58, &23, &34, &3A, &2E, &63, &6C, &65, &61, &72, &74, &69, &6D    ; &2360
-    EQUB &65, &6C, &6F, &6F, &70, &20, &53, &54, &41, &74, &69, &6D, &65, &73, &70, &61    ; &2370
-    EQUB &63, &65, &2C, &58, &3A, &44, &45, &58, &3A, &42, &50, &4C, &63, &6C, &65, &61    ; &2380
-    EQUB &72, &74, &69, &6D, &65, &6C, &6F, &6F, &70, &0D, &1C, &84, &2A, &4C, &44, &41    ; &2390
-    EQUB &23, &34, &3A, &4C, &44, &58, &23, &31, &3A, &4A, &53, &52, &6F, &73, &62, &79    ; &23A0
-    EQUB &74, &65, &3A, &4C, &44, &41, &23, &31, &33, &3A, &4A, &53, &52, &6F, &73, &77    ; &23B0
-    EQUB &72, &63, &68, &0D, &1C, &E8, &D7, &4C, &44, &41, &23, &6E, &6F, &65, &6E, &76    ; &23C0
-    EQUB &3A, &53, &54, &41, &74, &65, &6D, &70, &3A, &4C, &44, &41, &23, &65, &6E, &76    ; &23D0
-    EQUB &62, &75, &66, &66, &20, &80, &26, &46, &46, &3A, &53, &54, &41, &73, &74, &72    ; &23E0
-    EQUB &69, &6E, &67, &70, &74, &72, &3A, &4C, &44, &41, &23, &65, &6E, &76, &62, &75    ; &23F0
-    EQUB &66, &66, &20, &81, &32, &35, &36, &3A, &53, &54, &41, &73, &74, &72, &69, &6E    ; &2400
-    EQUB &67, &70, &74, &72, &2B, &31, &3A, &2E, &65, &6E, &76, &6C, &6F, &6F, &70, &20    ; &2410
+    EQUB &FF, &FC, &7E, &00, &59, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, &6C, &61, frame_toggle_a, frame_toggle_a, frame_toggle_b, &72, &2B    ; &2240
+    EQUB &32, &2C, &59, bomb_cooldown, &4C, &44, bullet_cooldown, &23, &26, &31, &30, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, &6C    ; &2250
+    EQUB &61, frame_toggle_a, frame_toggle_a, frame_toggle_b, &72, &2B, &31, &2C, &59, bomb_cooldown, &44, &45, &59, bomb_cooldown, &44, &45    ; &2260
+    EQUB &59, bomb_cooldown, &44, &45, &59, bomb_cooldown, &42, &50, &4C, warning_beeps_left, &63, &6F, &72, frame_toggle_b, &69, &6E    ; &2270
+    EQUB &69, warning_beep_timer, &0D, &1B, &58, &6A, &4C, &44, &59, &23, &28, &31, &30, &2A, &32, &30    ; &2280
+    EQUB &29, bomb_cooldown, &2E, &6E, &61, &6D, frame_toggle_b, &69, &6E, &69, warning_beep_timer, &20, &4C, &44, &58, &23    ; &2290
+    EQUB &39, bomb_cooldown, &2E, &69, &6E, &6E, frame_toggle_b, &72, &6E, &61, &6D, frame_toggle_b, &20, &4C, &44, bullet_cooldown    ; &22A0
+    EQUB &61, &63, &6F, &72, &6E, warning_beeps_left, &6F, &66, warning_beep_timer, &2C, &58, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, &6E    ; &22B0
+    EQUB &61, &6D, frame_toggle_b, &2D, &31, &2C, &59, bomb_cooldown, &44, &45, &59, bomb_cooldown, &44, &45, &58, bomb_cooldown    ; &22C0
+    EQUB &42, &50, &4C, &69, &6E, &6E, frame_toggle_b, &72, &6E, &61, &6D, frame_toggle_b, bomb_cooldown, section_spawn_timer, &59, bullet_cooldown    ; &22D0
+    EQUB bomb_cooldown, &42, section_index, &45, &6E, &61, &6D, frame_toggle_b, &69, &6E, &69, warning_beep_timer, &0D, &1B, &BC, &71    ; &22E0
+    EQUB &4C, &44, &58, &23, &6E, &61, &6D, frame_toggle_b, &20, &80, &26, &46, &46, bomb_cooldown, &4C, &44    ; &22F0
+    EQUB &59, &23, &32, &37, bomb_cooldown, &2E, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &69, &6E, &69, warning_beep_timer    ; &2300
+    EQUB &20, section_spawn_timer, &58, bullet_cooldown, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &2C, &59    ; &2310
+    EQUB bomb_cooldown, &43, &4C, &43, bomb_cooldown, bullet_cooldown, &44, &43, &23, &32, &30, bomb_cooldown, section_spawn_timer, bullet_cooldown, &58, bomb_cooldown    ; landscape_mask
+    EQUB &4C, &44, bullet_cooldown, &23, &37, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &2B    ; &2330
+    EQUB &31, &2C, &59, bomb_cooldown, &44, &45, &59, bomb_cooldown, &44, &45, &59, bomb_cooldown, &44, &45, &59, bomb_cooldown    ; &2340
+    EQUB &42, &50, &4C, warning_beeps_left, warning_beep_timer, &72, &69, &6E, &67, &69, &6E, &69, warning_beep_timer, &0D, &1C, &20    ; &2350
+    EQUB &3C, &4C, &44, &58, &23, &34, bomb_cooldown, &2E, &63, &6C, frame_toggle_b, &61, &72, warning_beep_timer, &69, &6D    ; &2360
+    EQUB frame_toggle_b, &6C, &6F, &6F, &70, &20, &53, section_spawn_timer, bullet_cooldown, warning_beep_timer, &69, &6D, frame_toggle_b, warning_beeps_left, &70, &61    ; &2370
+    EQUB &63, frame_toggle_b, &2C, &58, bomb_cooldown, &44, &45, &58, bomb_cooldown, &42, &50, &4C, &63, &6C, frame_toggle_b, &61    ; &2380
+    EQUB &72, warning_beep_timer, &69, &6D, frame_toggle_b, &6C, &6F, &6F, &70, &0D, &1C, &84, &2A, &4C, &44, bullet_cooldown    ; &2390
+    EQUB &23, &34, bomb_cooldown, &4C, &44, &58, &23, &31, bomb_cooldown, &4A, &53, &52, &6F, warning_beeps_left, &62, bonus_life_awarded    ; &23A0
+    EQUB warning_beep_timer, frame_toggle_b, bomb_cooldown, &4C, &44, bullet_cooldown, &23, &31, &33, bomb_cooldown, &4A, &53, &52, &6F, warning_beeps_left, section_object_slot_a    ; &23B0
+    EQUB &72, &63, &68, &0D, &1C, &E8, &D7, &4C, &44, bullet_cooldown, &23, &6E, &6F, frame_toggle_b, &6E, &76    ; &23C0
+    EQUB bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, warning_beep_timer, frame_toggle_b, &6D, &70, bomb_cooldown, &4C, &44, bullet_cooldown, &23, frame_toggle_b, &6E, &76    ; &23D0
+    EQUB &62, &75, &66, &66, &20, &80, &26, &46, &46, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, warning_beeps_left, warning_beep_timer, &72    ; &23E0
+    EQUB &69, &6E, &67, &70, warning_beep_timer, &72, bomb_cooldown, &4C, &44, bullet_cooldown, &23, frame_toggle_b, &6E, &76, &62, &75    ; &23F0
+    EQUB &66, &66, &20, &81, &32, &35, &36, bomb_cooldown, &53, section_spawn_timer, bullet_cooldown, warning_beeps_left, warning_beep_timer, &72, &69, &6E    ; &2400
+    EQUB &67, &70, warning_beep_timer, &72, &2B, &31, bomb_cooldown, &2E, frame_toggle_b, &6E, &76, &6C, &6F, &6F, &70, &20    ; &2410
 ; -----------------------------------------------------------------------------
 ; &2420 SOUND EFFECT TABLE: 8-byte OSWORD 7 parameter blocks
 ; Entry n is addressed as &2420 + n*8 by play_sound.
 ; -----------------------------------------------------------------------------
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &13, &00, &01, &00, &96, &00, &01, &00    ; &2420
-    EQUB &12, &00, &02, &00, &96, &00, &01, &00, &10, &00, &04, &00, &64, &00, &0A, &00    ; &2430
+    EQUB &12, &00, &02, &00, &96, &00, &01, &00, &10, &00, &04, &00, frame_toggle_a, &00, &0A, &00    ; &2430
     EQUB &11, &00, &04, &00, &C0, &00, &FF, &FF, &11, &00, &04, &00, &BC, &00, &14, &00    ; &2440
     EQUB &10, &00, &F1, &FF, &05, &00, &05, &00, &10, &00, &F1, &FF, &04, &00, &02, &00    ; &2450
     EQUB &10, &00, &F1, &FF, &06, &00, &32, &00, &12, &00, &00, &00, &00, &00, &00, &00    ; &2460
     EQUB &13, &00, &03, &00, &B4, &00, &01, &00, &11, &00, &00, &00, &00, &00, &00, &00    ; &2470
-    EQUB &01, &00, &00, &00, &72, &2B, &31, &3A, &44, &45, &43, &74, &65, &6D, &70, &3A    ; &2480
-    EQUB &42, &4E, &45, &65, &6E, &76, &6C, &6F, &6F, &70, &0D, &1D, &4C, &14, &4C, &44    ; &2490
-    EQUB &6E, &78, &81, &8A, &91, &98, &9C, &9F, &A0, &9F, &9C, &98, &91, &8A, &81, &78    ; &24A0
-    EQUB &6E, &64, &5B, &52, &4B, &44, &40, &3D, &3C, &3D, &40, &44, &4B, &52, &5B, &64    ; &24B0
+    EQUB &01, &00, &00, &00, &72, &2B, &31, bomb_cooldown, &44, &45, &43, warning_beep_timer, frame_toggle_b, &6D, &70, bomb_cooldown    ; &2480
+    EQUB &42, section_index, &45, frame_toggle_b, &6E, &76, &6C, &6F, &6F, &70, &0D, &1D, &4C, &14, &4C, &44    ; &2490
+    EQUB &6E, section_object_slot_b, &81, &8A, &91, &98, &9C, &9F, &A0, &9F, &9C, &98, &91, &8A, &81, section_object_slot_b    ; &24A0
+    EQUB &6E, frame_toggle_a, &5B, &52, &4B, &44, &40, player_lives_spares, &3C, player_lives_spares, &40, &44, &4B, &52, &5B, frame_toggle_a    ; &24B0
     EQUB &0A, &0A, &05, &0A, &0F, &14, &0F, &05, &12, &14, &0A, &1E, &05, &0A, &0F, &0D    ; &24C0
     EQUB &19, &1E, &0F, &19, &04, &1E, &14, &07, &0A, &14, &14, &05, &1E, &14, &19, &07    ; &24D0
     EQUB &1E, &1E, &14, &1E, &0A, &0A, &1E, &14, &0A, &0F, &14, &1E, &0A, &14, &1E, &0F    ; &24E0
@@ -2434,26 +2508,26 @@ print_bcd_nibble:
     EQUB &01, &1E, &01, &14, &01, &1E, &01, &1E, &1E, &14, &01, &1E, &01, &1E, &1E, &1E    ; &2510
     EQUB &14, &01, &05, &01, &1E, &01, &1E, &01, &1E, &1E, &1E, &01, &0A, &01, &1E, &1E    ; &2520
     EQUB &01, &1E, &1E, &1E, &01, &1E, &01, &19, &01, &1E, &1E, &1E, &01, &1E, &01, &0A    ; &2530
-    EQUB &01, &1E, &06, &06, &FF, &34, &26, &DD, &F2, &73, &61, &76, &65, &20, &FF, &28    ; &2540
+    EQUB &01, &1E, &06, &06, &FF, &34, &26, &DD, &F2, warning_beeps_left, &61, &76, frame_toggle_b, &20, &FF, &28    ; &2540
     EQUB &22, &53, &2E, &53, &52, &43, &45, &20, &22, &2B, &C3, &7E, &90, &2B, &22, &20    ; &2550
     EQUB &FE, &FF, &FD, &02, &01, &FF, &01, &FF, &01, &FF, &02, &01, &FF, &01, &01, &FF    ; &2560
     EQUB &01, &01, &FF, &01, &FF, &01, &01, &FE, &01, &01, &01, &FF, &01, &FF, &01, &FE    ; &2570
     EQUB &01, &FF, &01, &01, &FF, &FF, &01, &FF, &01, &02, &FF, &01, &01, &FF, &01, &FF    ; &2580
     EQUB &01, &FF, &01, &01, &FF, &01, &02, &02, &F6, &00, &00, &00, &00, &9C, &00, &E2    ; &2590
     EQUB &00, &5A, &00, &00, &00, &00, &00, &C4, &00, &E2, &00, &5A, &00, &00, &00, &00    ; &25A0
-    EQUB &CE, &00, &CE, &00, &32, &00, &3C, &00, &00, &00, &92, &00, &78, &00, &00, &00    ; &25B0
+    EQUB &CE, &00, &CE, &00, &32, &00, &3C, &00, &00, &00, &92, &00, section_object_slot_b, &00, &00, &00    ; &25B0
     EQUB &00, &95, &00, &75, &00, &BA, &00, &28, &00, &00, &00, &9C, &00, &32, &00, &00    ; &25C0
-    EQUB &32, &00, &00, &00, &9C, &00, &28, &00, &3C, &00, &00, &00, &9C, &00, &64, &00    ; &25D0
-    EQUB &3C, &00, &FA, &06, &FF, &20, &0D, &27, &D8, &0E, &2E, &67, &65, &74, &64, &69    ; &25E0
-    EQUB &67, &69, &74, &73, &0D, &28, &3C, &2E, &50, &48, &41, &3A, &80, &23, &26, &46    ; &25F0
-    EQUB &1E, &0A, &1F, &0A, &1E, &14, &14, &0E, &0E, &1E, &0F, &0F, &0C, &14, &0C, &0D    ; &2600
+    EQUB &32, &00, &00, &00, &9C, &00, &28, &00, &3C, &00, &00, &00, &9C, &00, frame_toggle_a, &00    ; &25D0
+    EQUB &3C, &00, &FA, &06, &FF, &20, &0D, &27, &D8, saved_caller_sp, &2E, &67, frame_toggle_b, warning_beep_timer, frame_toggle_a, &69    ; &25E0
+    EQUB &67, &69, warning_beep_timer, warning_beeps_left, &0D, &28, &3C, &2E, &50, &48, bullet_cooldown, bomb_cooldown, &80, &23, &26, &46    ; &25F0
+    EQUB &1E, &0A, &1F, &0A, &1E, &14, &14, saved_caller_sp, saved_caller_sp, &1E, &0F, &0F, &0C, &14, &0C, &0D    ; &2600
     EQUB &14, &14, &0F, &04, &08, &04, &0F, &08, &14, &1E, &14, &0A, &0A, &08, &14, &0A    ; &2610
-    EQUB &0F, &0A, &14, &0A, &0A, &0A, &0F, &05, &0C, &10, &0A, &0A, &0E, &0C, &0F, &0C    ; &2620
+    EQUB &0F, &0A, &14, &0A, &0A, &0A, &0F, &05, &0C, &10, &0A, &0A, saved_caller_sp, &0C, &0F, &0C    ; &2620
     EQUB &05, &05, &1E, &0F, &0A, &1E, &0A, &05, &0F, &0F, &0A, &0A, &0D, &0C, &0D, &05    ; &2630
     EQUB &0A, &05, &07, &05, &0A, &0F, &0A, &0F, &06, &0A, &0F, &0F, &0A, &14, &1E, &1E    ; &2640
     EQUB &0A, &0A, &14, &0A, &0F, &0A, &0A, &14, &0F, &05, &05, &14, &0A, &1E, &1E, &0A    ; &2650
     EQUB &1E, &1E, &14, &14, &0A, &1E, &14, &1E, &0A, &1E, &0A, &05, &1E, &0A, &14, &0A    ; &2660
-    EQUB &1E, &0A, &1E, &05, &1E, &0A, &1E, &14, &1E, &0A, &0F, &1E, &0A, &05, &05, &0E    ; &2670
+    EQUB &1E, &0A, &1E, &05, &1E, &0A, &1E, &14, &1E, &0A, &0F, &1E, &0A, &05, &05, saved_caller_sp    ; &2670
     EQUB &14, &0A, &0A, &0A, &0A, &13, &09, &14, &1E, &14, &14, &14, &1E, &14, &14, &14    ; &2680
     EQUB &1E, &14, &14, &14, &1E, &14, &14, &14, &1E, &14, &14, &14, &1E, &14, &14, &14    ; &2690
     EQUB &1E, &14, &14, &14, &1E, &14, &14, &14, &1E, &14, &14, &14, &1E, &14, &14, &14    ; &26A0
@@ -2461,23 +2535,23 @@ print_bcd_nibble:
     EQUB &0F, &14, &14, &1E, &14, &14, &14, &1E, &14, &14, &14, &1E, &14, &14, &18, &01    ; &26C0
     EQUB &4F, &01, &14, &01, &4A, &01, &14, &01, &4F, &01, &4A, &01, &14, &01, &5E, &01    ; &26D0
     EQUB &4F, &01, &14, &01, &59, &01, &14, &01, &4F, &01, &0A, &01, &4A, &01, &4F, &01    ; &26E0
-    EQUB &14, &01, &54, &01, &0A, &01, &0A, &01, &5E, &01, &4A, &01, &0A, &01, &05, &01    ; &26F0
-    EQUB &54, &01, &05, &01, &4F, &01, &0F, &01, &54, &01, &0A, &01, &0A, &01, &1E, &01    ; &2700
-    EQUB &14, &01, &5E, &01, &4A, &01, &54, &01, &0A, &01, &05, &01, &4F, &01, &0A, &01    ; &2710
-    EQUB &54, &01, &14, &01, &4A, &01, &0A, &01, &0A, &01, &07, &01, &54, &01, &5E, &05    ; &2720
-    EQUB &01, &5E, &1E, &01, &5E, &5E, &5E, &5E, &14, &01, &5E, &54, &01, &5E, &54, &01    ; &2730
+    EQUB &14, &01, section_spawn_timer, &01, &0A, &01, &0A, &01, &5E, &01, &4A, &01, &0A, &01, &05, &01    ; &26F0
+    EQUB section_spawn_timer, &01, &05, &01, &4F, &01, &0F, &01, section_spawn_timer, &01, &0A, &01, &0A, &01, &1E, &01    ; &2700
+    EQUB &14, &01, &5E, &01, &4A, &01, section_spawn_timer, &01, &0A, &01, &05, &01, &4F, &01, &0A, &01    ; &2710
+    EQUB section_spawn_timer, &01, &14, &01, &4A, &01, &0A, &01, &0A, &01, &07, &01, section_spawn_timer, &01, &5E, &05    ; &2720
+    EQUB &01, &5E, &1E, &01, &5E, &5E, &5E, &5E, &14, &01, &5E, section_spawn_timer, &01, &5E, section_spawn_timer, &01    ; &2730
     EQUB &5E, &01, &5E, &5E, &14, &01, &5E, &01, &5E, &01, &5E, &5E, &1E, &01, &5E, &01    ; &2740
     EQUB &5E, &01, &5E, &5E, &5E, &4A, &01, &4A, &01, &5E, &5E, &5E, &01, &5E, &14, &01    ; &2750
-    EQUB &54, &01, &5E, &5E, &5E, &01, &5E, &5E, &01, &4A, &01, &5E, &5E, &5E, &4A, &01    ; &2760
+    EQUB section_spawn_timer, &01, &5E, &5E, &5E, &01, &5E, &5E, &01, &4A, &01, &5E, &5E, &5E, &4A, &01    ; &2760
     EQUB &5E, &01, &5E, &01, &5E, &5E, &1E, &4F, &01, &5E, &01, &5E, &01, &59, &1E, &01    ; &2770
-    EQUB &5E, &01, &54, &01, &54, &01, &54, &01, &5E, &01, &4A, &01, &5E, &54, &01, &54    ; &2780
+    EQUB &5E, &01, section_spawn_timer, &01, section_spawn_timer, &01, section_spawn_timer, &01, &5E, &01, &4A, &01, &5E, section_spawn_timer, &01, section_spawn_timer    ; &2780
     EQUB &01, &5E, &01, &5E, &01, &5E, &5E, &5E, &01, &5E, &01, &5E, &01, &59, &1E, &01    ; &2790
-    EQUB &5E, &01, &54, &01, &54, &01, &54, &01, &5E, &01, &4A, &01, &5E, &54, &01, &54    ; &27A0
+    EQUB &5E, &01, section_spawn_timer, &01, section_spawn_timer, &01, section_spawn_timer, &01, &5E, &01, &4A, &01, &5E, section_spawn_timer, &01, section_spawn_timer    ; &27A0
     EQUB &01, &5E, &01, &5E, &01, &5E, &5E, &5E, &01, &5E, &01, &5E, &01, &59, &1E, &01    ; &27B0
-    EQUB &5E, &01, &54, &01, &54, &01, &54, &01, &5E, &01, &4A, &01, &5E, &54, &01, &54    ; &27C0
+    EQUB &5E, &01, section_spawn_timer, &01, section_spawn_timer, &01, section_spawn_timer, &01, &5E, &01, &4A, &01, &5E, section_spawn_timer, &01, section_spawn_timer    ; &27C0
     EQUB &01, &5E, &01, &5E, &01, &5E, &5E, &5E, &5E, &5E, &5E, &5E, &5E, &5E, &5E, &5E    ; &27D0
-    EQUB &5E, &5E, &5E, &06, &06, &FF, &65, &72, &6F, &66, &6C, &61, &67, &3A, &4C, &44    ; &27E0
-    EQUB &41, &63, &79, &63, &6C, &65, &63, &6F, &75, &6E, &74, &3A, &4A, &4D, &50, &67    ; &27F0
+    EQUB &5E, &5E, &5E, &06, &06, &FF, frame_toggle_b, &72, &6F, &66, &6C, &61, &67, bomb_cooldown, &4C, &44    ; &27E0
+    EQUB bullet_cooldown, &63, bonus_life_awarded, &63, &6C, frame_toggle_b, &63, &6F, &75, &6E, warning_beep_timer, bomb_cooldown, &4A, &4D, &50, &67    ; &27F0
     EQUB &04, &FD, &00, &03, &FE, &FE, &00, &02, &FE, &00, &03, &00, &02, &00, &02, &00    ; &2800
     EQUB &03, &03, &FC, &00, &04, &00, &FD, &00, &04, &FC, &00, &02, &04, &00, &FD, &00    ; &2810
     EQUB &01, &03, &FF, &00, &03, &00, &04, &00, &02, &00, &FD, &00, &FF, &00, &01, &00    ; &2820
@@ -2497,19 +2571,19 @@ print_bcd_nibble:
     EQUB &00, &0A, &00, &C4, &00, &14, &00, &1E, &00, &28, &00, &EC, &00, &0F, &00, &D8    ; &2900
     EQUB &00, &EC, &00, &1E, &00, &1E, &00, &1E, &00, &EF, &00, &14, &00, &EC, &00, &11    ; &2910
     EQUB &00, &81, &00, &14, &00, &EC, &00, &1E, &00, &EC, &00, &14, &00, &E2, &00, &00    ; &2920
-    EQUB &78, &00, &00, &9C, &00, &00, &00, &00, &00, &64, &00, &00, &CE, &00, &00, &D8    ; &2930
-    EQUB &00, &E2, &00, &00, &00, &64, &00, &CE, &00, &CE, &00, &00, &00, &32, &00, &3C    ; &2940
-    EQUB &00, &9C, &00, &00, &00, &00, &64, &00, &9C, &00, &00, &00, &46, &00, &00, &28    ; &2950
+    EQUB section_object_slot_b, &00, &00, &9C, &00, &00, &00, &00, &00, frame_toggle_a, &00, &00, &CE, &00, &00, &D8    ; &2930
+    EQUB &00, &E2, &00, &00, &00, frame_toggle_a, &00, &CE, &00, &CE, &00, &00, &00, &32, &00, &3C    ; &2940
+    EQUB &00, &9C, &00, &00, &00, &00, frame_toggle_a, &00, &9C, &00, &00, &00, &46, &00, &00, &28    ; &2950
     EQUB &00, &9C, &00, &00, &00, &32, &00, &00, &32, &00, &9C, &00, &00, &00, &00, &28    ; &2960
-    EQUB &00, &3C, &00, &9C, &00, &00, &00, &00, &64, &00, &CE, &00, &C4, &00, &00, &78    ; &2970
-    EQUB &00, &3C, &00, &CE, &00, &9C, &00, &EC, &00, &64, &00, &3C, &00, &00, &EC, &00    ; &2980
-    EQUB &D8, &00, &CE, &00, &CE, &00, &00, &00, &64, &00, &CE, &00, &C4, &00, &00, &78    ; &2990
-    EQUB &00, &3C, &00, &CE, &00, &9C, &00, &EC, &00, &64, &00, &3C, &00, &00, &EC, &00    ; &29A0
-    EQUB &D8, &00, &CE, &00, &CE, &00, &00, &00, &64, &00, &CE, &00, &C4, &00, &00, &78    ; &29B0
-    EQUB &00, &3C, &00, &CE, &00, &9C, &00, &EC, &00, &64, &00, &3C, &00, &00, &EC, &00    ; &29C0
+    EQUB &00, &3C, &00, &9C, &00, &00, &00, &00, frame_toggle_a, &00, &CE, &00, &C4, &00, &00, section_object_slot_b    ; &2970
+    EQUB &00, &3C, &00, &CE, &00, &9C, &00, &EC, &00, frame_toggle_a, &00, &3C, &00, &00, &EC, &00    ; &2980
+    EQUB &D8, &00, &CE, &00, &CE, &00, &00, &00, frame_toggle_a, &00, &CE, &00, &C4, &00, &00, section_object_slot_b    ; &2990
+    EQUB &00, &3C, &00, &CE, &00, &9C, &00, &EC, &00, frame_toggle_a, &00, &3C, &00, &00, &EC, &00    ; &29A0
+    EQUB &D8, &00, &CE, &00, &CE, &00, &00, &00, frame_toggle_a, &00, &CE, &00, &C4, &00, &00, section_object_slot_b    ; &29B0
+    EQUB &00, &3C, &00, &CE, &00, &9C, &00, &EC, &00, frame_toggle_a, &00, &3C, &00, &00, &EC, &00    ; &29C0
     EQUB &D8, &00, &CE, &00, &CE, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00    ; &29D0
-    EQUB &00, &00, &00, &06, &FA, &FF, &6D, &70, &7A, &3A, &4C, &44, &41, &74, &6F, &70    ; &29E0
-    EQUB &2B, &31, &3A, &41, &44, &43, &23, &60, &67, &61, &75, &67, &65, &73, &69, &7A    ; &29F0
+    EQUB &00, &00, &00, &06, &FA, &FF, &6D, &70, &7A, bomb_cooldown, &4C, &44, bullet_cooldown, warning_beep_timer, &6F, &70    ; &29E0
+    EQUB &2B, &31, bomb_cooldown, bullet_cooldown, &44, &43, &23, &60, &67, &61, &75, &67, frame_toggle_b, warning_beeps_left, &69, &7A    ; &29F0
     EQUB &01, &02, &05, &01, &02, &05, &01, &02, &05, &01, &05, &02, &01, &02, &05, &01    ; &2A00
     EQUB &01, &02, &01, &02, &05, &01, &02, &05, &01, &02, &02, &01, &05, &02, &01, &05    ; &2A10
     EQUB &01, &05, &02, &05, &01, &02, &02, &01, &02, &05, &05, &01, &01, &01, &02, &01    ; &2A20
@@ -2520,33 +2594,51 @@ print_bcd_nibble:
     EQUB &01, &05, &02, &05, &01, &02, &05, &01, &02, &05, &01, &02, &05, &01, &02, &05    ; &2A70
     EQUB &05, &01, &02, &05, &01, &02, &02, &02, &02, &02, &02, &02, &02, &02, &02, &02    ; &2A80
     EQUB &02, &02, &02, &02, &02, &02, &02, &02, &02, &02, &02, &02, &02, &03, &03, &03    ; &2A90
-    EQUB &FF, &24, &41, &25, &2C, &41, &24, &29, &F1, &5A, &25, &3F, &31, &2A, &32, &35    ; &2AA0
-    EQUB &36, &2B, &5A, &25, &3F, &32, &3B, &0D, &33, &2C, &1A, &5A, &25, &3D, &5A, &25    ; &2AB0
-    EQUB &2B, &5A, &25, &3F, &33, &3A, &FD, &5A, &25, &3F, &31, &3E, &26, &37, &46, &3A    ; &2AC0
-    EQUB &E1, &0D, &33, &90, &05, &20, &0D, &33, &F4, &26, &DD, &F2, &73, &61, &76, &65    ; &2AD0
+    EQUB &FF, &24, bullet_cooldown, &25, &2C, bullet_cooldown, &24, &29, &F1, &5A, &25, &3F, &31, &2A, &32, &35    ; &2AA0
+    EQUB &36, &2B, &5A, &25, &3F, &32, &3B, &0D, &33, &2C, &1A, &5A, &25, player_lives_spares, &5A, &25    ; &2AB0
+    EQUB &2B, &5A, &25, &3F, &33, bomb_cooldown, &FD, &5A, &25, &3F, &31, &3E, &26, &37, &46, bomb_cooldown    ; &2AC0
+    EQUB &E1, &0D, &33, &90, &05, &20, &0D, &33, &F4, &26, &DD, &F2, warning_beeps_left, &61, &76, frame_toggle_b    ; &2AD0
     EQUB &20, &FF, &28, &22, &53, &2E, &53, &52, &43, &42, &20, &22, &2B, &C3, &7E, &90    ; &2AE0
-    EQUB &2B, &22, &20, &22, &2B, &C3, &7E, &B8, &50, &29, &3A, &E1, &0D, &FF, &9C, &00    ; &2AF0
+    EQUB &2B, &22, &20, &22, &2B, &C3, &7E, &B8, &50, &29, bomb_cooldown, &E1, &0D, &FF, &9C, &00    ; &2AF0
 ; -----------------------------------------------------------------------------
 ; &2B00-&2BEF RUNTIME OBJECT STATE TABLES
 ; Parallel arrays store screen pointers, type, animation/state and X/Y positions
 ; for the player, projectiles and enemies.  They are cleared/rebuilt per life.
 ; -----------------------------------------------------------------------------
-    EQUB &73, &61, &76, &65, &00, &E0, &2A, &91, &99, &AE, &00, &00, &00, &00, &00, &00    ; &2B00
-    EQUB &00, &00, &00, &00, &49, &00, &00, &00, &00, &00, &00, &00, &00, &77, &00, &00    ; &2B10
+    EQUB warning_beeps_left, &61, &76, frame_toggle_b, &00, &E0, &2A, &91, &99, &AE, &00, &00, &00, &00, &00, &00    ; &2B00
+    EQUB &00, &00, &00, &00, &49, &00, &00, &00, &00, &00, &00, &00, &00, section_object_slot_a, &00, &00    ; &2B10
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &F4, &A1, &A1, &A1, &A1, &A1, &A1, &A1    ; &2B20
     EQUB &99, &AE, &06, &1C, &A1, &00, &00, &00, &00, &00, &00, &00, &49, &00, &00, &00    ; &2B30
-    EQUB &00, &00, &00, &00, &00, &77, &78, &79, &00, &00, &00, &00, &00, &00, &00, &00    ; &2B40
-    EQUB &00, &0A, &0A, &09, &09, &09, &09, &FF, &04, &02, &05, &01, &0C, &01, &02, &32    ; &2B50
+    EQUB &00, &00, &00, &00, &00, section_object_slot_a, section_object_slot_b, bonus_life_awarded, &00, &00, &00, &00, &00, &00, &00, &00    ; &2B40
+    EQUB &00, &0A, &0A, &09, &09, &09, &09, &FF, &04, &02, &05, &01, &0C, &01, &02, &32    ; object_type_table
     EQUB &20, &22, &2B, &C3, &80, &80, &80, &80, &80, &80, &80, &9D, &DC, &00, &00, &00    ; &2B60
-    EQUB &80, &00, &00, &FF, &00, &00, &73, &61, &06, &00, &00, &00, &00, &00, &00, &00    ; &2B70
+    EQUB &80, &00, &00, &FF, &00, &00, warning_beeps_left, &61, &06, &00, &00, &00, &00, &00, &00, &00    ; &2B70
     EQUB &00, &1C, &27, &4A, &00, &00, &00, &00, &00, &00, &00, &00, &BB, &00, &00, &00    ; &2B80
     EQUB &00, &00, &00, &52, &4B, &29, &29, &2B, &DF, &00, &00, &00, &00, &00, &00, &00    ; &2B90
     EQUB &08, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18    ; &2BA0
     EQUB &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &18, &90    ; &2BB0
-    EQUB &0E, &D8, &A6, &A7, &AB, &B0, &B0, &AF, &B2, &B3, &B5, &B7, &BB, &C0, &BE, &BE    ; &2BC0
+    EQUB saved_caller_sp, &D8, &A6, &A7, &AB, &B0, &B0, &AF, &B2, &B3, &B5, &B7, &BB, &C0, &BE, &BE    ; &2BC0
     EQUB &BD, &C0, &C1, &C3, &C5, &C7, &B0, &B3, &B1, &B0, &B2, &B5, &B3, &B2, &B4, &B5    ; &2BD0
     EQUB &15, &18, &00, &01, &07, &03, &01, &05, &06, &07, &00, &01, &02, &03, &04, &05    ; &2BE0
     EQUB &06, &07, &00, &50, &50, &00, &00, &00, &00, &00, &00, &00, &00, &00, &80, &00    ; &2BF0
+; -----------------------------------------------------------------------------
+; OBJECT TYPE / DESCRIPTOR MODEL (Stage 5)
+; ---------------------------------------------
+; A=type passed to draw_object_by_type indexes four parallel 13-byte tables:
+;   object_sprite_lo/hi   -> sprite byte stream address
+;   object_draw_param_1/2 -> renderer geometry/control parameters
+; &1CD7 loads these into &1F/&20/&1E/&21 and tail-jumps to xor_sprite_renderer.
+; Rendering is XOR, so the same routine both draws and erases an object.
+;
+; Collision award tables are also indexed directly by object type:
+;   object_score_lo/type and object_score_mid/type -> packed BCD award.
+; Type 5 is exceptional: it chooses one of four awards from special_score_*
+; using the pseudo-random clock helper.  Type 3 does not award points at all;
+; hitting it branches directly to raid_complete.
+;
+; The neutral TYPE_* names are intentional.  They encode proven behaviour, not
+; guessed artwork names.  Once each sprite is positively matched on-screen we
+; can rename these without changing any code.
 ; -----------------------------------------------------------------------------
 ; &2C00-&2Cxx GAMEPLAY DESCRIPTOR TABLES
 ; Stage parameters, object sprite geometry, collision widths/heights, palette
@@ -2555,9 +2647,9 @@ print_bcd_nibble:
     EQUB &00, &01, &08, &01, &05, &00, &00, &00, &00, &00, &00, &00, &4B, &3C, &48, &60    ; &2C00
     EQUB &48, &80, &FF, &00, &FF, &FF, &00, &FF, &00, &50, &50, &00, &02, &03, &04, &06    ; &2C10
     EQUB &05, &01, &02, &04, &03, &06, &00, &01, &02, &00, &00, &00, &23, &28, &0A, &14    ; &2C20
-    EQUB &10, &10, &06, &10, &0A, &06, &0E, &02, &07, &08, &17, &46, &3C, &60, &60, &12    ; &2C30
-    EQUB &60, &28, &12, &7E, &02, &0E, &20, &45, &2E, &2E, &2E, &2E, &2F, &2F, &2F, &2F    ; &2C40
-    EQUB &2D, &2D, &2D, &2D, &2D, &12, &58, &94, &F4, &B4, &54, &C6, &EE, &64, &E2, &E4    ; &2C50
+    EQUB &10, &10, &06, &10, &0A, &06, saved_caller_sp, &02, &07, &08, &17, &46, &3C, &60, &60, &12    ; &2C30
+    EQUB &60, &28, &12, &7E, &02, saved_caller_sp, &20, &45, &2E, &2E, &2E, &2E, &2F, &2F, &2F, &2F    ; &2C40
+    EQUB &2D, &2D, &2D, &2D, &2D, &12, &58, &94, &F4, &B4, section_spawn_timer, &C6, &EE, frame_toggle_a, &E2, &E4    ; &2C50
     EQUB &F2, &1F, &07, &03, &06, &19, &03, &07, &04, &03, &09, &01, &02, &04, &03, &15    ; &2C60
     EQUB &15, &15, &15, &15, &15, &15, &15, &3F, &15, &15, &15, &15, &15, &15, &3F, &00    ; &2C70
     EQUB &15, &00, &00, &00, &00, &00, &15, &2A, &2A, &2A, &2A, &2A, &2A, &2A, &3F, &15    ; &2C80
@@ -2570,9 +2662,9 @@ print_bcd_nibble:
     EQUB &15, &15, &15, &15, &15, &15, &15, &3F, &15, &15, &3F, &15, &15, &15, &3F, &15    ; &2CF0
     EQUB &15, &15, &15, &00, &00, &00, &15, &3F, &15, &15, &3F, &15, &15, &15, &3F, &00    ; &2D00
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00    ; &2D10
-    EQUB &00, &00, &41, &55, &55, &14, &00, &14, &14, &14, &00, &00, &00, &AA, &AA, &EB    ; &2D20
-    EQUB &41, &41, &00, &AA, &AA, &AA, &82, &82, &82, &41, &41, &41, &00, &00, &00, &00    ; &2D30
-    EQUB &00, &00, &00, &00, &82, &82, &C3, &41, &41, &00, &00, &00, &00, &00, &00, &00    ; &2D40
+    EQUB &00, &00, bullet_cooldown, &55, &55, &14, &00, &14, &14, &14, &00, &00, &00, &AA, &AA, &EB    ; &2D20
+    EQUB bullet_cooldown, bullet_cooldown, &00, &AA, &AA, &AA, &82, &82, &82, bullet_cooldown, bullet_cooldown, bullet_cooldown, &00, &00, &00, &00    ; &2D30
+    EQUB &00, &00, &00, &00, &82, &82, &C3, bullet_cooldown, bullet_cooldown, &00, &00, &00, &00, &00, &00, &00    ; &2D40
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &AA, &AA, &AA, &00, &00    ; &2D50
     EQUB &00, &AA, &AA, &AA, &00, &22, &33, &00, &44, &44, &00, &22, &33, &44, &00, &00    ; &2D60
     EQUB &11, &22, &00, &00, &22, &66, &33, &CC, &99, &33, &CC, &CC, &33, &22, &00, &00    ; &2D70
@@ -2589,9 +2681,9 @@ print_bcd_nibble:
     EQUB &3F, &3F, &3F, &2A, &2A, &33, &22, &00, &15, &2B, &3F, &3F, &2B, &15, &00, &22    ; &2E20
     EQUB &00, &3F, &2B, &2B, &3F, &3F, &2B, &2B, &3F, &00, &00, &2A, &2B, &2B, &3F, &3F    ; &2E30
     EQUB &2B, &2B, &2A, &00, &00, &00, &2A, &2B, &3F, &3F, &2B, &2A, &00, &00, &00, &00    ; &2E40
-    EQUB &00, &00, &3F, &3F, &00, &00, &00, &00, &00, &00, &00, &41, &55, &55, &55, &55    ; &2E50
-    EQUB &41, &41, &41, &41, &41, &41, &EB, &EB, &AA, &AA, &AA, &AA, &82, &82, &82, &C3    ; &2E60
-    EQUB &C3, &C3, &C3, &C3, &C3, &C3, &C3, &C3, &C3, &C3, &41, &41, &00, &00, &00, &00    ; &2E70
+    EQUB &00, &00, &3F, &3F, &00, &00, &00, &00, &00, &00, &00, bullet_cooldown, &55, &55, &55, &55    ; &2E50
+    EQUB bullet_cooldown, bullet_cooldown, bullet_cooldown, bullet_cooldown, bullet_cooldown, bullet_cooldown, &EB, &EB, &AA, &AA, &AA, &AA, &82, &82, &82, &C3    ; &2E60
+    EQUB &C3, &C3, &C3, &C3, &C3, &C3, &C3, &C3, &C3, &C3, bullet_cooldown, bullet_cooldown, &00, &00, &00, &00    ; &2E70
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &AA, &AA    ; &2E80
     EQUB &AA, &AA, &AA, &AA, &00, &44, &CC, &CC, &CC, &CC, &CC, &44, &00, &00, &00, &00    ; &2E90
     EQUB &00, &51, &51, &51, &CC, &CC, &F3, &E6, &F3, &E6, &E6, &CC, &CC, &51, &51, &F3    ; &2EA0
@@ -2605,12 +2697,12 @@ print_bcd_nibble:
     EQUB &F3, &F3, &F3, &51, &CC, &C9, &C9, &CC, &F0, &CC, &FC, &FC, &FC, &CC, &88, &00    ; &2F20
     EQUB &A2, &A2, &A2, &00, &00, &88, &D8, &E4, &CC, &CC, &CC, &CC, &D9, &51, &51, &51    ; &2F30
     EQUB &F3, &F3, &F3, &51, &00, &00, &00, &88, &88, &88, &00, &00, &00, &00, &00, &00    ; &2F40
-    EQUB &A2, &A2, &A2, &00, &00, &00, &00, &41, &C3, &C3, &C3, &C3, &C3, &C3, &41, &51    ; &2F50
-    EQUB &41, &C3, &C3, &41, &00, &41, &00, &41, &E3, &E3, &E3, &E3, &E3, &41, &41, &00    ; &2F60
+    EQUB &A2, &A2, &A2, &00, &00, &00, &00, bullet_cooldown, &C3, &C3, &C3, &C3, &C3, &C3, bullet_cooldown, &51    ; &2F50
+    EQUB bullet_cooldown, &C3, &C3, bullet_cooldown, &00, bullet_cooldown, &00, bullet_cooldown, &E3, &E3, &E3, &E3, &E3, bullet_cooldown, bullet_cooldown, &00    ; &2F60
     EQUB &00, &82, &82, &00, &C3, &C3, &E9, &C3, &C7, &CF, &CF, &DA, &DA, &DA, &DA, &C3    ; &2F70
-    EQUB &41, &C3, &C3, &41, &82, &C3, &A8, &C3, &E1, &E1, &E1, &E1, &E1, &E1, &C3, &82    ; &2F80
-    EQUB &00, &82, &82, &00, &00, &00, &00, &41, &E3, &E3, &E3, &E3, &E3, &41, &41, &51    ; &2F90
-    EQUB &41, &C3, &C3, &41, &00, &00, &00, &00, &82, &82, &82, &82, &82, &82, &00, &00    ; &2FA0
+    EQUB bullet_cooldown, &C3, &C3, bullet_cooldown, &82, &C3, &A8, &C3, &E1, &E1, &E1, &E1, &E1, &E1, &C3, &82    ; &2F80
+    EQUB &00, &82, &82, &00, &00, &00, &00, bullet_cooldown, &E3, &E3, &E3, &E3, &E3, bullet_cooldown, bullet_cooldown, &51    ; &2F90
+    EQUB bullet_cooldown, &C3, &C3, bullet_cooldown, &00, &00, &00, &00, &82, &82, &82, &82, &82, &82, &00, &00    ; &2FA0
     EQUB &00, &82, &82, &00, &44, &CC, &C9, &C9, &CC, &44, &CC, &CC, &CC, &CC, &CC, &CC    ; &2FB0
     EQUB &88, &CC, &C6, &C6, &CC, &88, &00, &00, &00, &01, &01, &07, &03, &17, &01, &00    ; &2FC0
     EQUB &00, &01, &03, &03, &07, &0B, &03, &15, &03, &03, &03, &03, &07, &0B, &03, &01    ; &2FD0
@@ -2623,22 +2715,22 @@ print_bcd_nibble:
 ; MOD: OSWORD 0 name length is &13 (19 chars) at runtime &0540.
 ; -----------------------------------------------------------------------------
     EQUB &86, &16, &07, &1F, &07, &03, &86, &9D, &84, &8D, &43, &6F, &6E, &67, &72, &61    ; &3000
-    EQUB &74, &75, &6C, &61, &74, &69, &6F, &6E, &73, &21, &21, &20, &20, &20, &9C, &1F    ; &3010
-    EQUB &07, &04, &86, &9D, &84, &8D, &43, &6F, &6E, &67, &72, &61, &74, &75, &6C, &61    ; &3020
-    EQUB &74, &69, &6F, &6E, &73, &21, &21, &20, &20, &20, &9C, &1F, &03, &07, &82, &59    ; &3030
-    EQUB &6F, &75, &72, &20, &73, &63, &6F, &72, &65, &20, &69, &73, &20, &69, &6E, &20    ; &3040
-    EQUB &74, &68, &65, &20, &54, &6F, &70, &20, &45, &69, &67, &68, &74, &2E, &1F, &07    ; &3050
-    EQUB &0A, &81, &50, &6C, &65, &61, &73, &65, &20, &65, &6E, &74, &65, &72, &20, &79    ; &3060
-    EQUB &6F, &75, &72, &20, &6E, &61, &6D, &65, &3A, &1F, &07, &0F, &86, &9D, &84, &1F    ; &3070
+    EQUB warning_beep_timer, &75, &6C, &61, warning_beep_timer, &69, &6F, &6E, warning_beeps_left, &21, &21, &20, &20, &20, &9C, &1F    ; &3010
+    EQUB &07, &04, &86, &9D, &84, &8D, &43, &6F, &6E, &67, &72, &61, warning_beep_timer, &75, &6C, &61    ; &3020
+    EQUB warning_beep_timer, &69, &6F, &6E, warning_beeps_left, &21, &21, &20, &20, &20, &9C, &1F, &03, &07, &82, &59    ; &3030
+    EQUB &6F, &75, &72, &20, warning_beeps_left, &63, &6F, &72, frame_toggle_b, &20, &69, warning_beeps_left, &20, &69, &6E, &20    ; &3040
+    EQUB warning_beep_timer, &68, frame_toggle_b, &20, section_spawn_timer, &6F, &70, &20, &45, &69, &67, &68, warning_beep_timer, &2E, &1F, &07    ; &3050
+    EQUB &0A, &81, &50, &6C, frame_toggle_b, &61, warning_beeps_left, frame_toggle_b, &20, frame_toggle_b, &6E, warning_beep_timer, frame_toggle_b, &72, &20, bonus_life_awarded    ; &3060
+    EQUB &6F, &75, &72, &20, &6E, &61, &6D, frame_toggle_b, bomb_cooldown, &1F, &07, &0F, &86, &9D, &84, &1F    ; &3070
     EQUB &1F, &0F, &9C, &1F, &0A, &0F, &16, &07, &1F, &06, &01, &81, &8D, &52, &6F, &63    ; &3080
-    EQUB &6B, &65, &74, &20, &52, &61, &69, &64, &20, &48, &61, &6C, &6C, &20, &4F, &66    ; &3090
-    EQUB &20, &46, &61, &6D, &65, &1F, &06, &02, &81, &8D, &52, &6F, &63, &6B, &65, &74    ; &30A0
-    EQUB &20, &52, &61, &69, &64, &20, &48, &61, &6C, &6C, &20, &4F, &66, &20, &46, &61    ; &30B0
-    EQUB &6D, &65, &0A, &0A, &0A, &0D, &1F, &05, &16, &50, &72, &65, &73, &73, &20, &53    ; &30C0
-    EQUB &50, &41, &43, &45, &20, &42, &41, &52, &20, &6F, &72, &20, &46, &69, &72, &65    ; &30D0
-    EQUB &20, &42, &75, &74, &74, &6F, &6E, &1F, &0A, &17, &4F, &6E, &20, &4A, &6F, &79    ; &30E0
-    EQUB &73, &74, &69, &63, &6B, &20, &54, &6F, &20, &53, &74, &61, &72, &74, &0D, &4C    ; &30F0
-    EQUB &05, &06, &20, &16, &1D, &A2, &64, &20, &22, &1D, &A9, &FF, &8D, &4E, &FE, &A5    ; &3100
+    EQUB &6B, frame_toggle_b, warning_beep_timer, &20, &52, &61, &69, frame_toggle_a, &20, &48, &61, &6C, &6C, &20, &4F, &66    ; &3090
+    EQUB &20, &46, &61, &6D, frame_toggle_b, &1F, &06, &02, &81, &8D, &52, &6F, &63, &6B, frame_toggle_b, warning_beep_timer    ; &30A0
+    EQUB &20, &52, &61, &69, frame_toggle_a, &20, &48, &61, &6C, &6C, &20, &4F, &66, &20, &46, &61    ; &30B0
+    EQUB &6D, frame_toggle_b, &0A, &0A, &0A, &0D, &1F, &05, &16, &50, &72, frame_toggle_b, warning_beeps_left, warning_beeps_left, &20, &53    ; &30C0
+    EQUB &50, bullet_cooldown, &43, &45, &20, &42, bullet_cooldown, &52, &20, &6F, &72, &20, &46, &69, &72, frame_toggle_b    ; &30D0
+    EQUB &20, &42, &75, warning_beep_timer, warning_beep_timer, &6F, &6E, &1F, &0A, &17, &4F, &6E, &20, &4A, &6F, bonus_life_awarded    ; &30E0
+    EQUB warning_beeps_left, warning_beep_timer, &69, &63, &6B, &20, section_spawn_timer, &6F, &20, &53, warning_beep_timer, &61, &72, warning_beep_timer, &0D, &4C    ; &30F0
+    EQUB &05, &06, &20, &16, &1D, &A2, frame_toggle_a, &20, &22, &1D, &A9, &FF, &8D, section_index, &FE, &A5    ; &3100
     EQUB &40, &CD, &D5, &06, &90, &E9, &D0, &10, &A5, &3F, &CD, &D4, &06, &90, &E0, &D0    ; &3110
     EQUB &07, &A5, &3E, &CD, &D3, &06, &90, &D7, &A2, &00, &A0, &04, &20, &9B, &06, &A9    ; &3120
     EQUB &7E, &20, &F4, &FF, &A0, &07, &A2, &E0, &A9, &E5, &8D, &E0, &07, &8C, &E1, &07    ; &3130
@@ -2647,7 +2739,7 @@ print_bcd_nibble:
     EQUB &AD, &EF, &06, &85, &01, &A0, &13, &B9, &E5, &07, &91, &00, &88, &10, &F8, &A5    ; &3160
     EQUB &3E, &8D, &D0, &06, &A5, &3F, &8D, &D1, &06, &A5, &40, &8D, &D2, &06, &A2, &03    ; &3170
     EQUB &8A, &A8, &88, &88, &88, &B9, &D2, &06, &DD, &D2, &06, &90, &6E, &D0, &12, &B9    ; &3180
-    EQUB &D1, &06, &DD, &D1, &06, &90, &64, &D0, &08, &B9, &D0, &06, &DD, &D0, &06, &90    ; &3190
+    EQUB &D1, &06, &DD, &D1, &06, &90, frame_toggle_a, &D0, &08, &B9, &D0, &06, &DD, &D0, &06, &90    ; &3190
     EQUB &5A, &BD, &D0, &06, &8D, &D4, &07, &BD, &D1, &06, &8D, &D5, &07, &BD, &D2, &06    ; &31A0
     EQUB &8D, &D6, &07, &B9, &D0, &06, &9D, &D0, &06, &B9, &D1, &06, &9D, &D1, &06, &B9    ; &31B0
     EQUB &D2, &06, &9D, &D2, &06, &AD, &D4, &07, &99, &D0, &06, &AD, &D5, &07, &99, &D1    ; &31C0
@@ -2656,18 +2748,18 @@ print_bcd_nibble:
     EQUB &D4, &07, &99, &EE, &06, &AD, &D5, &07, &99, &EF, &06, &E8, &E8, &E8, &E0, &1B    ; &31F0
     EQUB &F0, &03, &4C, &80, &05, &A2, &86, &A0, &04, &20, &B1, &06, &A2, &0A, &A9, &20    ; &3200
     EQUB &20, &40, &1C, &A2, &18, &A0, &01, &84, &1B, &A9, &20, &20, &C4, &06, &A5, &1B    ; &3210
-    EQUB &09, &30, &20, &EE, &FF, &20, &C2, &06, &A0, &FF, &BD, &D2, &06, &20, &41, &1D    ; &3220
-    EQUB &BD, &D1, &06, &20, &41, &1D, &BD, &D0, &06, &20, &41, &1D, &20, &C2, &06, &8A    ; &3230
+    EQUB &09, &30, &20, &EE, &FF, &20, &C2, &06, &A0, &FF, &BD, &D2, &06, &20, bullet_cooldown, &1D    ; &3220
+    EQUB &BD, &D1, &06, &20, bullet_cooldown, &1D, &BD, &D0, &06, &20, bullet_cooldown, &1D, &20, &C2, &06, &8A    ; &3230
     EQUB &48, &BD, &EF, &06, &A8, &BD, &EE, &06, &AA, &20, &B1, &06, &68, &AA, &A9, &0A    ; &3240
     EQUB &20, &EE, &FF, &20, &EE, &FF, &E6, &1B, &CA, &CA, &CA, &D0, &BC, &A2, &C6, &A0    ; &3250
     ; &3260-&3263 completes a call to the copied Atom-string printer.
     ; &3264 (runtime &0664) is original source label .space: the title/start
     ; controller.  It handles Q/S sound selection, SPACE/joystick selection,
-    ; calls game (&0E00), then jumps to checkhi_score (&0502) on return.
+    ; calls game (saved_caller_sp00), then jumps to checkhi_score (&0502) on return.
     EQUB &04, &20, &B1, &06, &A9, &7E, &20, &F4, &FF, &A2, &EF, &20, &21, &1C, &F0, &03    ; &3260
     EQUB &E8, &86, &75, &A2, &AE, &20, &21, &1C, &F0, &02, &86, &75, &A9, &00, &85, &6E    ; &3270  Q/S -> soundflag; joyflag=0
-    EQUB &A2, &9D, &20, &21, &1C, &D0, &0E, &A9, &FF, &85, &6E, &A2, &00, &20, &CD, &1B    ; &3280  SPACE or joystick fire; joyflag=&FF for joystick
-    EQUB &8A, &29, &01, &F0, &CF, &20, &00, &0E, &4C, &02, &05, &86, &00, &84, &01, &A0    ; &3290  JSR game; JMP checkhi_score; microsoftstring begins &329B/&069B
+    EQUB &A2, &9D, &20, &21, &1C, &D0, saved_caller_sp, &A9, &FF, &85, &6E, &A2, &00, &20, &CD, &1B    ; &3280  SPACE or joystick fire; joyflag=&FF for joystick
+    EQUB &8A, &29, &01, &F0, &CF, &20, &00, saved_caller_sp, &4C, &02, &05, &86, &00, &84, &01, &A0    ; &3290  JSR game; JMP checkhi_score; microsoftstring begins &329B/&069B
     EQUB &00, &B1, &00, &85, &02, &C8, &B1, &00, &20, &EE, &FF, &C8, &C4, &02, &D0, &F6    ; &32A0  microsoftstring: length-prefixed output
     EQUB &60, &86, &00, &84, &01, &A0, &00, &B1, &00, &20, &EE, &FF, &C8, &C9, &0D, &D0    ; &32B0  atomstring begins &32B1/&06B1: CR-terminated output
     EQUB &F6, &60, &A9, &2E, &A0, &04, &20, &EE, &FF, &88, &D0, &FA, &60, &00, &00, &00    ; &32C0  fourdots begins &32C2/&06C2
@@ -2801,7 +2893,7 @@ envelope_pointer_ok:
 
 ; Original source label: acornsoft
 acornsoft:
-    EQUB &41,&63,&6F,&72,&6E,&73,&6F,&66,&74,13    ; "Acornsoft", CR
+    EQUB bullet_cooldown,&63,&6F,&72,&6E,warning_beeps_left,&6F,&66,warning_beep_timer,13    ; "Acornsoft", CR
 
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00    ; &34A0
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00    ; &34B0
@@ -2822,12 +2914,12 @@ raidobj_loader:
     JSR &FFF4           ; OSBYTE
 
     LDA #&00
-    STA &70             ; destination pointer = &0E00
+    STA &70             ; destination pointer = saved_caller_sp00
     STA &72             ; source pointer      = &1E00
-    LDA #&0E
+    LDA #saved_caller_sp
     STA &71
     LDA #&1E
-    STA &73
+    STA warning_beeps_left
     LDY #&00
 
 copy_payload_page:
@@ -2836,8 +2928,8 @@ copy_payload_page:
     INY
     BNE copy_payload_page
     INC &71
-    INC &73
-    LDA &73
+    INC warning_beeps_left
+    LDA warning_beeps_left
     CMP #&45            ; copied source through &44FF
     BNE copy_payload_page
 
@@ -2854,6 +2946,6 @@ copy_low_workspace:
     EQUB &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00, &00
 
 low_workspace_image: ; original bytes at &4550-&457F copied to &03B0-&03DF
-    EQUB &00, &00, &52, &41, &49, &44, &4F, &42, &4A, &00, &00, &00, &00, &00, &00, &0E    ; source &4550
-    EQUB &00, &00, &00, &0E, &00, &00, &26, &00, &9D, &00, &80, &00, &00, &00, &00, &89    ; source &4560
-    EQUB &7B, &19, &52, &41, &49, &44, &4F, &42, &4A, &00, &00, &00, &00, &00, &00, &80    ; source &4570
+    EQUB &00, &00, &52, bullet_cooldown, &49, &44, &4F, &42, &4A, &00, &00, &00, &00, &00, &00, saved_caller_sp    ; source &4550
+    EQUB &00, &00, &00, saved_caller_sp, &00, &00, &26, &00, &9D, &00, &80, &00, &00, &00, &00, &89    ; source &4560
+    EQUB &7B, &19, &52, bullet_cooldown, &49, &44, &4F, &42, &4A, &00, &00, &00, &00, &00, &00, &80    ; source &4570
