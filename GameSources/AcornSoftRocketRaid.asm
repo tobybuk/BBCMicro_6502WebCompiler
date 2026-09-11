@@ -1,5 +1,19 @@
-; STAGE 12 - TERRAIN LANGUAGE DECODED + DEEP DOCUMENTATION
+; STAGE 13 - FINAL ARCHIVAL / BYTE-EXACT DOCUMENTED SOURCE
 ; @default-origin &0E00
+;
+; ARCHIVAL INVARIANT
+; ------------------
+; The canonical &0E00 build MUST emit the exact 10,112 bytes of the original
+; Acornsoft $.RAIDOBJ file.  All Stage 13 work is non-emitting documentation,
+; labels/aliases, or symbolic expressions which encode to the original bytes.
+; No optimisation, cleanup, dead-byte removal, algorithm rewrite or data
+; normalisation is permitted in this file.  Even overwritten build/source
+; residue is retained at its original physical position.
+;
+; Relocation remains an assembly-time option for the persistent core, but the
+; archival reference build is always Origin=&0E00.  Byte-exact verification is
+; against that canonical build.
+;
 ; Based on the byte-exact, relocation-safe Stage 11 baseline.
 ;
 ; Stage 12 concentrates on the last large opaque subsystem: the terrain language.
@@ -30,6 +44,7 @@
 ;   * documents Hall-of-Fame scratch/display/sentinel entries precisely;
 ;   * recovers additional original author symbols from surviving assembler text;
 ;   * marks genuinely dead/unreferenced bytes instead of inventing meanings;
+;   * completes the archival pass without changing a single canonical byte;
 ;   * keeps all relocatable core references label-relative.
 ; Based on the compile-safe, byte-exact Stage 9.1 baseline.
 ;
@@ -367,12 +382,12 @@ LOGICAL_COLOUR_LAST       = 15
 STARTING_SPARES           = 2         ; MOD: total ships = this + current ship
 PLAYER_START_X            = &06
 PLAYER_START_Y            = &BB
-PLAYER_Y_MIN              = &13       ; MOD
-PLAYER_Y_MAX              = &DD       ; MOD
-PLAYER_X_MIN              = &06       ; MOD
-PLAYER_X_MAX              = &1E       ; MOD
-PLAYER_VERTICAL_STEP      = 2         ; MOD
-PLAYER_HORIZONTAL_STEP    = 1         ; MOD
+PLAYER_Y_MIN              = &13       ; MOD: smaller lets the ship move further toward the upper limit
+PLAYER_Y_MAX              = &DD       ; MOD: larger lets the ship move further toward the lower limit
+PLAYER_X_MIN              = &06       ; MOD: rearward movement limit
+PLAYER_X_MAX              = &1E       ; MOD: forward movement limit
+PLAYER_VERTICAL_STEP      = 2         ; MOD: player vertical speed per accepted input update
+PLAYER_HORIZONTAL_STEP    = 1         ; MOD: player horizontal speed per accepted input update
 LIFE_ICONS_MAX_DISPLAYED  = 2
 
 ; Score / bonus life (packed BCD)
@@ -383,6 +398,8 @@ BCD_LOW_NIBBLE_MASK       = &0F
 SCORE_LEADING_BLANK_PATTERN = &A0
 
 ; Object score table values (packed BCD, low byte + middle byte).
+; MOD: changing these constants changes the award for the named target while
+; preserving the table structure.  Values are packed BCD, not binary integers.
 GROUND_MISSILE_SCORE_LO  = &50       ; 50
 GROUND_MISSILE_SCORE_MID = &00
 FUEL_TANK_SCORE_LO       = &50       ; 150
@@ -407,11 +424,11 @@ BOMB_COOLDOWN_FRAMES      = 6         ; MOD: larger = slower bomb repeat
 BULLET_COOLDOWN_FRAMES    = 1         ; MOD: larger = slower bullet repeat
 BOMB_SPAWN_X_OFFSET       = 3
 BOMB_SPAWN_Y_GAP          = 1
-BOMB_INITIAL_VELOCITY     = &20
+BOMB_INITIAL_VELOCITY     = &20       ; MOD: initial bomb trajectory accumulator/velocity
 BOMB_DESPAWN_Y            = &DD
 BULLET_SPAWN_Y_OFFSET     = 4
 BULLET_DESPAWN_X          = &46
-BULLET_X_STEP             = 2
+BULLET_X_STEP             = 2         ; MOD: bullet horizontal speed
 BULLET_STATE_INITIAL      = &A0       ; active + custom renderer
 PROJECTILE_HIT_X_TOLERANCE = &10
 PROJECTILE_HIT_Y_TOLERANCE = &18
@@ -458,15 +475,15 @@ JOY_LOW_THRESHOLD         = &32
 JOY_HIGH_THRESHOLD        = &CE
 
 ; Dynamic hazards
-MISSILE_LAUNCH_X_THRESHOLD = &4C
+MISSILE_LAUNCH_X_THRESHOLD = &4C     ; MOD: latest X at which a ground missile may launch
 HAZARD_ENTRY_X            = &4B
 HAZARD_RANDOM_MASK        = &07       ; MOD: spawn chance 1/(mask+1) for 2^n-1 masks
 PHIZZER_RESPAWN_FRAMES    = &28       ; MOD: delay between Phizzer spawn attempts
 PHIZZER_PATH_MASK         = &1F
 METEORITE_Y_RANDOM_MASK   = &7F
 METEORITE_Y_BASE          = &64
-LAUNCHED_MISSILE_Y_STEP   = 3         ; launched ground missile moves 3 Y units per selected update
-METEORITE_X_STEP          = 2         ; meteorite moves left by two X units on its selected update
+LAUNCHED_MISSILE_Y_STEP   = 3         ; MOD: launched-missile vertical speed on its selected update
+METEORITE_X_STEP          = 2         ; MOD: meteorite horizontal speed on its selected update
 
 ; Terrain bytecode / rolling profiles
 TERRAIN_CMD_END_BIT         = &80
@@ -514,11 +531,11 @@ ENVELOPE_RECORD_COUNT     = 6
 noenv                     = ENVELOPE_RECORD_COUNT ; ORIGINAL author symbol recovered from startup source
 
 ; Timing
-PLAYER_DEATH_FLASH_FRAMES = &32
-EXTRA_LIFE_BEEP_COUNT     = 5
+PLAYER_DEATH_FLASH_FRAMES = &32      ; MOD: explosion/palette-flash duration
+EXTRA_LIFE_BEEP_COUNT     = 5         ; MOD: number of extra-life beeps
 EXTRA_LIFE_BEEP_FIRST_DELAY = 1
-EXTRA_LIFE_BEEP_PERIOD    = &1E
-RAID_COMPLETE_DELAY_TICKS = &64
+EXTRA_LIFE_BEEP_PERIOD    = &1E       ; MOD: spacing between extra-life beeps
+RAID_COMPLETE_DELAY_TICKS = &64       ; MOD: delay before/after Well Done message
 
 ; Hall of Fame
 HIGH_SCORE_ENTRIES        = 10
@@ -527,7 +544,7 @@ HIGH_SCORE_NAME_BYTES     = 20
 HIGH_SCORE_LADDER_BYTES   = 30
 HIGH_SCORE_NAMES_BYTES    = 200
 ASCII_ZERO                = &30
-HIGH_SCORE_INPUT_MAX      = 19
+HIGH_SCORE_INPUT_MAX      = 19        ; MOD: maximum Hall-of-Fame name length
 HIGH_SCORE_INPUT_MIN_ASCII = &20
 HIGH_SCORE_INPUT_MAX_ASCII = &7E
 HIGH_SCORE_SORT_FIRST_OFFSET = HIGH_SCORE_BYTES_PER_ENTRY
@@ -550,6 +567,9 @@ DRAWABLE_X_MIN_COORD       = 1
 SECTION_SPAWN_INITIAL_DELAY = &14
 ORIGINAL_CORE_SIZE         = &2200     ; original &0E00-&2FFF persistent segment
 CONTROLLER_IMAGE_BYTES     = &0300     ; three pages copied from transient image
+CONTROLLER_PAGE_BYTES      = 256       ; one complete 6502 page
+CONTROLLER_PAGE1_OFFSET    = CONTROLLER_PAGE_BYTES
+CONTROLLER_PAGE2_OFFSET    = CONTROLLER_PAGE_BYTES*2
 PLAYER_ERASE_SCREEN_PAGE_OFFSET_HI = &05
 SCROLL_GUARD_LAST_Y        = &07
 TERRAIN_PREFILL_EDGE_TOGGLE = &01
@@ -1053,7 +1073,7 @@ SOUND_PLAYER_DEATH      = 8
 SOUND_QUIET_CHANNEL_2   = 9      ; OSWORD7 block is channel 18, amplitude 0
 SOUND_EXTRA_LIFE_BEEP   = 10
 SOUND_QUIET_CHANNEL_1   = 11     ; OSWORD7 block is channel 17, amplitude 0
-SOUND_RAID_COMPLETE     = 12     ; channel 1, amplitude 0: effectively a channel-control/silence block
+SOUND_RAID_COMPLETE     = 12     ; called only by raid_complete; channel 1 amplitude 0 => quiet/control, not an audible tune
 
 ; Stage 6 state recovery -------------------------------------------------------
 ; Fuel is a 16-bit countdown in &48:&47.  A new life starts at &0240.  Every
@@ -1081,6 +1101,10 @@ scroll_screen_hi        = &0D
 ; Surviving source fragment contains "LDAtop+1" in the fuel-gauge path.  Its
 ; data flow maps `top` to this 16-bit circular screen base.
 top                     = scroll_screen_lo          ; probable ORIGINAL author symbol
+; Surviving source fragment: "mpz:LDAtop+1:ADC#`gaugesiz".  In the finished
+; code this maps exactly to the high-byte part of the &0750 gauge-body offset.
+; `gaugesiz` is therefore retained as a probable original-source alias.
+gaugesiz                = FUEL_GAUGE_BODY_OFFSET    ; probable ORIGINAL author symbol (&0750)
 
 ; Landscape command/data stream pointers.  &0F1B consumes the first pair and
 ; &0F69 the second.  Saved copies at &55-&5C allow a life restart to restore the
@@ -2836,8 +2860,9 @@ draw_fuel_gauge_frame:
     CLC                                ; &18CC
     ADC #FUEL_GAUGE_BODY_OFFSET_LO     ; &18CD
     STA fuel_gauge_ptr_lo         ; &18CF
-    LDA scroll_screen_hi               ; &18D1
-    ADC #FUEL_GAUGE_PAGE_OFFSET_HI     ; &18D3
+mpz:                                    ; probable ORIGINAL label from surviving source fragment
+    LDA scroll_screen_hi               ; &18D1  original source: LDAtop+1
+    ADC #FUEL_GAUGE_PAGE_OFFSET_HI     ; &18D3  original source: ADC#`gaugesiz
     BPL fuel_frame_pointer_ready                          ; &18D5
     SEC                                ; &18D7
     SBC #SCREEN_WRAP_HIGH_DELTA        ; &18D8
@@ -3699,7 +3724,8 @@ sound_record_extra_life_beep: ; effect 10: extra-life beep: envelope 3
     EQUB &13, &00, &03, &00, &B4, &00, &01, &00    ; &2470
 sound_record_quiet_channel_1: ; effect 11: zero amplitude / quiet channel 1
     EQUB &11, &00, &00, &00, &00, &00, &00, &00    ; &2478
-sound_record_raid_complete: ; effect 12: zero-amplitude channel-control record
+sound_record_raid_complete_quiet:
+sound_record_raid_complete: ; effect 12: raid-complete path, zero-amplitude channel-1 control record
     EQUB &01, &00, &00, &00, &72, &2B, &31, &3A    ; &2480
 ; Preserved original build/source residue following effect 12.
     EQUB &44, &45, &43, &74, &65, &6D, &70, &3A    ; &2488
@@ -5176,7 +5202,8 @@ section_colour_code: ; &2C20 - terrain physical colour by section
 section_envelope_index: ; original &2C26 - selects one 14-byte envelope record
     EQUB SECTION_ENVELOPE_DEFAULT, SECTION_ENVELOPE_CAVERN, SECTION_ENVELOPE_METEOR
     EQUB SECTION_ENVELOPE_DEFAULT, SECTION_ENVELOPE_DEFAULT, SECTION_ENVELOPE_DEFAULT
-unreferenced_descriptor_prefix: ; original &2C2C - &23,&28; no live code xrefs found
+dead_bytes_2c2c:                       ; proven no live code/data xrefs in released build
+unreferenced_descriptor_prefix:        ; compatibility label; original &2C2C = &23,&28
     EQUB &23, &28    ; &2C2C
 object_height_pixels: ; original &2C2E - sprite height in scanlines by type
     EQUB PLAYER_SPRITE_HEIGHT, GROUND_MISSILE_SPRITE_HEIGHT, FUEL_TANK_SPRITE_HEIGHT
@@ -5319,6 +5346,11 @@ sprite_unused_7: ; original &2FEE - TYPE_UNUSED_SPRITE_7, 6 x 6 pixels, 18 bytes
     ; unused/abandoned sprite unless runtime evidence proves otherwise.
     EQUB &00, &01, &17, &01, &00, &00, &00, &0B, &07, &2B, &05, &00    ; &2FEE
     EQUB &03, &3F, &0B, &2F, &02, &00    ; &2FFA
+; FINAL ARCHIVAL STATUS FOR REMAINING ODDITIES
+;   &3C          write-only life-state byte: cleared, never read in released code
+;   &2C2C-&2C2D no live xrefs; preserved as dead/orphan bytes &23,&28
+;   object type 7 has valid descriptor/sprite but no live allocator/xref
+; These are deliberately NOT assigned invented gameplay meanings.
 core_image_end:                         ; original &3000; persistent core size = &2200 bytes
 ; -----------------------------------------------------------------------------
 ; TRANSIENT COPIED UI / HALL-OF-FAME / CONTROLLER BLOCK
@@ -5696,9 +5728,9 @@ copy_controller_pages:
 transloop:                              ; ORIGINAL .transloop
     LDA controller_image_start,Y
     STA CONTROLLER_RUNTIME_PAGE0,Y
-    LDA controller_image_start+&0100,Y
+    LDA controller_image_start+CONTROLLER_PAGE1_OFFSET,Y
     STA CONTROLLER_RUNTIME_PAGE1,Y
-    LDA controller_image_start+&0200,Y
+    LDA controller_image_start+CONTROLLER_PAGE2_OFFSET,Y
     STA CONTROLLER_RUNTIME_PAGE2,Y
     DEY
     BNE copy_controller_pages
