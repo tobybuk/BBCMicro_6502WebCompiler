@@ -191,6 +191,11 @@ UnitRadarDot     = &066B
 ; The only absolute addresses retained in this definitions section are genuine
 ; BBC Micro / MOS / hardware locations and deliberately fixed external
 ; workspaces such as the unit arrays at &0400 and zero page.
+;
+; IMPORTANT: internal addresses assembled as split low/high bytes must also use
+; symbolic expressions (#<label / #>label).  The original game occasionally
+; constructed sprite/tile pointers this way; leaving the literal bytes in place
+; makes apparently harmless code insertions corrupt graphics.
 
 ; Zero-page scratch (heavily overlaid by subsystem)
 DestPtrLo         = &70
@@ -2183,9 +2188,11 @@ ProcessNextDeathUnit:
     JSR InitialiseUnitVelocity                    ; &1A99: 20 AC 17
     DEX                          ; &1A9C: CA
     BPL ProcessNextDeathUnit                    ; &1A9D: 10 C1
-    LDA #&BA                     ; &1A9F: A9 BA
+    ; Original stored the sprite address as literal bytes &2DBA.  Keep it symbolic
+    ; so code/data inserted earlier can move the graphics safely.
+    LDA #<ShrapnelSprite        ; original &1A9F: A9 BA
     STA SpritePtrLoTable                    ; &1AA1: 8D 0B 2B
-    LDA #&2D                     ; &1AA4: A9 2D
+    LDA #>ShrapnelSprite        ; original &1AA4: A9 2D
     STA SpritePtrHiTable                    ; &1AA6: 8D 16 2B
     LDA #&04                     ; &1AA9: A9 04
     STA SpriteLengths                    ; &1AAB: 8D 00 2B
@@ -2726,9 +2733,10 @@ SelectSurfaceTileQuadrant:
     AND #&03                     ; &1E01: 29 03
     ASL A                        ; &1E03: 0A
     ASL A                        ; &1E04: 0A
-    ADC #&20                     ; &1E05: 69 20
+    ; SurfaceTiles was originally &2D20; derive the base from the label.
+    ADC #<SurfaceTiles          ; original &1E05: 69 20
     STA SourcePtrLo                      ; &1E07: 85 72
-    LDA #&2D                     ; &1E09: A9 2D
+    LDA #>SurfaceTiles          ; original &1E09: A9 2D
     STA SourcePtrHi                      ; &1E0B: 85 73
     LDX TempHi                      ; &1E0D: A6 77
     LDY SavedY                      ; &1E0F: A4 86
@@ -2820,7 +2828,7 @@ StoreReverseKeyLatch:
     LDX #&00                     ; &1EAC: A2 00
     JSR XorBlitSprite                    ; &1EAE: 20 B4 20
     LDA SpritePtrLoTable                    ; &1EB1: AD 0B 2B
-    EOR #&30                     ; &1EB4: 49 30
+    EOR #(<ShipRightSprite ^ <ShipLeftSprite) ; original &1EB4: 49 30
     STA SpritePtrLoTable                    ; &1EB6: 8D 0B 2B
     LDA #&00                     ; &1EB9: A9 00
     STA UnitSpritePtrHi                    ; &1EBB: 8D 4D 05
@@ -3516,9 +3524,10 @@ ResetAllUnitsForNewScreenLoop:
     STA UnitAnim                    ; &2382: 8D 46 06
     STA PlayerDead                    ; &2385: 8D 24 2F
     STA PlayerCollisionMask                      ; &2388: 85 8B
-    LDA #&C0                     ; &238A: A9 C0
+    ; Initial player-sprite pointer was originally hard-coded as &2CC0.
+    LDA #<ShipRightSprite       ; original &238A: A9 C0
     STA SpritePtrLoTable                    ; &238C: 8D 0B 2B
-    LDA #&2C                     ; &238F: A9 2C
+    LDA #>ShipRightSprite       ; original &238F: A9 2C
     STA SpritePtrHiTable                    ; &2391: 8D 16 2B
     LDA #&30                     ; &2394: A9 30
     STA SpriteLengths                    ; &2396: 8D 00 2B
