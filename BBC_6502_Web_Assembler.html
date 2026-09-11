@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>BBC 6502 Web Assembler (ChatGPT assisted - Stable branch version)</title>
+    <title>BBC 6502 Web Assembler (ChatGPT assisted)</title>
     <style>
         :root {
             color-scheme: dark;
@@ -165,11 +165,42 @@
             background: #0e1115
         }
 
+        #lineNumbers {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 58px;
+            overflow: hidden;
+            background: #0a0d11;
+            border-right: 1px solid var(--border);
+            color: #66717f;
+            font: 13.5px/1.48 var(--mono);
+            text-align: right;
+            user-select: none;
+            pointer-events: none;
+            box-sizing: border-box;
+            z-index: 2
+        }
+
+        #lineNumbersInner {
+            margin: 0;
+            padding: 12px 9px 12px 4px;
+            font: inherit;
+            line-height: inherit;
+            white-space: pre;
+            box-sizing: border-box
+        }
+
         #editor {
             position: absolute;
-            inset: 0;
-            width: 100%;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 58px;
+            width: calc(100% - 58px);
             height: 100%;
+            box-sizing: border-box;
             resize: none;
             border: 0;
             outline: 0;
@@ -459,7 +490,7 @@
     </style>
 </head>
 <body>
-    <header><h1>BBC 6502 Web Assembler (ChatGPT assisted - Stable branch version)</h1><span class="version" id="version"></span></header>
+    <header><h1>BBC 6502 Web Assembler (ChatGPT assisted)</h1><span class="version" id="version"></span></header>
     <div class="toolbar">
         <button id="newBtn">New</button>
         <button id="openBtn">Open file(s)</button>
@@ -468,6 +499,7 @@
         <button id="saveSourceBtn">Save source</button>
         <button id="saveSourceAsBtn">Save As…</button>
         <button class="primary" id="assembleBtn">Assemble</button>
+        <button class="primary" id="feelingLuckyBtn" title="Assemble, build a bootable SSD and run it immediately in jsbeeb">Feeling Lucky</button>
         <button id="saveBinBtn" disabled>Save binary</button>
         <button id="saveDiskBtn" disabled>Save boot disk…</button>
         <button id="saveListingBtn" disabled>Save listing</button>
@@ -483,7 +515,7 @@
     <div id="workspace">
         <section class="editorPane">
             <div class="filebar"><label>Source</label><select id="fileSelect"></select><span id="dirty">modified</span></div>
-            <div class="editorWrap"><textarea id="editor" spellcheck="false" aria-label="6502 source editor"></textarea></div>
+            <div class="editorWrap"><div id="lineNumbers" aria-hidden="true"><pre id="lineNumbersInner">1</pre></div><textarea id="editor" spellcheck="false" aria-label="6502 source editor"></textarea></div>
             <div class="statusbar"><span id="cursorPos">Ln 1, Col 1</span><span id="sourceStats"></span><span>Ctrl+Enter: assemble</span><span>Ctrl+S: save source</span><span>Ctrl+Shift+S: Save As…</span></div>
         </section>
         <section class="resultsPane">
@@ -1102,6 +1134,7 @@ message:
             }
 
             const editor = byId('editor');
+            const lineNumbersInner = byId('lineNumbersInner');
             const fileSelect = byId('fileSelect');
             const dirtyIndicator = byId('dirty');
             const openInput = byId('openInput');
@@ -1439,6 +1472,7 @@ message:
 
                 currentFile = name;
                 editor.value = files.get(name) || '';
+                updateLineNumbers();
                 applySourceMetadata(editor.value);
                 refreshFileSelect();
                 setDirty(false);
@@ -1453,6 +1487,7 @@ message:
                 files = new Map([['untitled.asm', sample]]);
                 currentFile = 'untitled.asm';
                 editor.value = sample;
+                updateLineNumbers();
                 refreshFileSelect();
                 setDirty(false);
                 lastResult = null;
@@ -1479,6 +1514,7 @@ message:
 
                 currentFile = sourceFile || [...files.keys()][0];
                 editor.value = files.get(currentFile);
+                updateLineNumbers();
                 applySourceMetadata(editor.value);
 
                 refreshFileSelect();
@@ -1570,6 +1606,7 @@ message:
 
                     currentFile = requested || preferredMain || names[0];
                     editor.value = files.get(currentFile) || '';
+                    updateLineNumbers();
                     applySourceMetadata(editor.value);
                     refreshFileSelect();
                     setDirty(false);
@@ -2747,6 +2784,66 @@ message:
                 }
             }
 
+            async function feelingLucky() {
+                // Open the emulator tab immediately from the user's click. Opening it after
+                // assembly/ZIP creation risks being blocked by the browser as a popup.
+                const emulatorWindow = window.open('about:blank', '_blank');
+
+                if (!emulatorWindow) {
+                    alert('The browser blocked the jsbeeb window. Allow pop-ups for this assembler and try again.');
+                    return;
+                }
+
+                const button = byId('feelingLuckyBtn');
+                const originalText = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Building…';
+
+                try {
+                    // Always compile what is in the editor right now. Never reuse an older
+                    // successful lastResult for the one-click test path.
+                    await assemble();
+
+                    if (!lastResult?.success) {
+                        emulatorWindow.close();
+                        return;
+                    }
+
+                    // Populate exactly the same defaults as Save boot disk… without opening
+                    // the configuration dialog, then use the normal SSD builder.
+                    byId('diskTitle').value = stem(currentFile).toUpperCase().slice(0, 12) || '6502 PROGRAM';
+                    byId('programName').value = stem(currentFile).replace(/[^A-Za-z0-9!_-]/g, '').toUpperCase().slice(0, 7) || 'PROGRAM';
+                    byId('bootOrigin').value = hex4(lastResult.origin);
+                    byId('entryPoint').value = suggestedEntrySymbol(lastResult);
+
+                    const setupStatements = lastResult.basicStatements || [];
+                    byId('bootBasicCount').value =
+                        `${setupStatements.length} @basic line${setupStatements.length === 1 ? '' : 's'}`;
+
+                    const keyMappings = lastResult.jsbeebKeyMappings || [];
+                    byId('bootJsBeebKeyCount').value =
+                        `${keyMappings.length} mapping${keyMappings.length === 1 ? '' : 's'}`;
+
+                    if (lastResult.jsbeebKeyMetadataError) {
+                        throw new Error(lastResult.jsbeebKeyMetadataError);
+                    }
+
+                    const disk = buildBootDiskFromDialog();
+                    const url = await makeJsBeebRunUrl(
+                        disk.image,
+                        lastResult.jsbeebKeyMappings || []
+                    );
+
+                    emulatorWindow.location.replace(url);
+                } catch (error) {
+                    emulatorWindow.close();
+                    alert(`Feeling Lucky failed.\n\n${error.message}`);
+                } finally {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+
             function saveListing() {
                 if (!lastResult?.success) {
                     return;
@@ -2781,6 +2878,22 @@ message:
                 });
             }
 
+            function updateLineNumbers() {
+                const lineCount = editor.value.split('\n').length;
+                const numbers = new Array(lineCount);
+
+                for (let line = 1; line <= lineCount; line++) {
+                    numbers[line - 1] = String(line);
+                }
+
+                lineNumbersInner.textContent = numbers.join('\n');
+                syncLineNumberScroll();
+            }
+
+            function syncLineNumberScroll() {
+                lineNumbersInner.style.transform = `translateY(${-editor.scrollTop}px)`;
+            }
+
             function updateCursor() {
                 const position = editor.selectionStart;
                 const beforeCursor = editor.value.slice(0, position);
@@ -2794,6 +2907,82 @@ message:
                     `${editor.value.length.toLocaleString()} chars`;
             }
 
+            function handleEditorTab(event) {
+                if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                const start = editor.selectionStart;
+                const end = editor.selectionEnd;
+                const value = editor.value;
+                const selectionContainsNewline = value.slice(start, end).includes('\n');
+
+                // With no multi-line selection, Tab inserts a real tab character.
+                if (start === end || !selectionContainsNewline) {
+                    if (event.shiftKey) {
+                        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+                        const prefix = value.slice(lineStart, start);
+                        const removable = prefix.match(/(?:\t| {1,4})$/);
+
+                        if (removable) {
+                            const removeStart = start - removable[0].length;
+                            editor.setRangeText('', removeStart, start, 'end');
+                        }
+                    } else {
+                        editor.setRangeText('\t', start, end, 'end');
+                    }
+
+                    editor.dispatchEvent(new Event('input', { bubbles: true }));
+                    return;
+                }
+
+                // For a multi-line selection, Tab/Shift+Tab indents or unindents every line.
+                const firstLineStart = value.lastIndexOf('\n', start - 1) + 1;
+                let selectionEnd = end;
+                if (selectionEnd > start && value[selectionEnd - 1] === '\n') {
+                    selectionEnd--;
+                }
+                const lastLineEndIndex = value.indexOf('\n', selectionEnd);
+                const blockEnd = lastLineEndIndex === -1 ? value.length : lastLineEndIndex;
+                const block = value.slice(firstLineStart, blockEnd);
+                const lines = block.split('\n');
+                const changedLines = [];
+                let removedBeforeStart = 0;
+                let totalDelta = 0;
+
+                for (let index = 0; index < lines.length; index++) {
+                    const line = lines[index];
+
+                    if (event.shiftKey) {
+                        const match = line.match(/^(?:\t| {1,4})/);
+                        const removed = match ? match[0].length : 0;
+                        changedLines.push(line.slice(removed));
+                        totalDelta -= removed;
+                        if (index === 0) {
+                            removedBeforeStart = Math.min(removed, start - firstLineStart);
+                        }
+                    } else {
+                        changedLines.push('\t' + line);
+                        totalDelta += 1;
+                    }
+                }
+
+                const replacement = changedLines.join('\n');
+                editor.setRangeText(replacement, firstLineStart, blockEnd, 'select');
+
+                if (event.shiftKey) {
+                    editor.selectionStart = Math.max(firstLineStart, start - removedBeforeStart);
+                    editor.selectionEnd = Math.max(editor.selectionStart, end + totalDelta);
+                } else {
+                    editor.selectionStart = start + 1;
+                    editor.selectionEnd = end + lines.length;
+                }
+
+                editor.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+
             // Toolbar actions.
             byId('newBtn').onclick = newSource;
             byId('openBtn').onclick = () => openInput.click();
@@ -2802,6 +2991,7 @@ message:
             byId('saveSourceBtn').onclick = saveSource;
             byId('saveSourceAsBtn').onclick = saveSourceAs;
             assembleButton.onclick = assemble;
+            byId('feelingLuckyBtn').onclick = feelingLucky;
             saveBinaryButton.onclick = saveBinary;
             saveDiskButton.onclick = openBootDialog;
             saveListingButton.onclick = saveListing;
@@ -2815,8 +3005,11 @@ message:
             // Editor state.
             editor.addEventListener('input', () => {
                 setDirty(true);
+                updateLineNumbers();
                 updateCursor();
             });
+            editor.addEventListener('scroll', syncLineNumberScroll);
+            editor.addEventListener('keydown', handleEditorTab);
             editor.addEventListener('click', updateCursor);
             editor.addEventListener('keyup', updateCursor);
 
