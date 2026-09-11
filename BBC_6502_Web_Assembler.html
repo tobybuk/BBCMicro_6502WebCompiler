@@ -468,6 +468,30 @@
                 display: flex
             }
 
+        #valueHoverTooltip {
+            position: fixed;
+            z-index: 200;
+            display: none;
+            pointer-events: none;
+            background: #111820;
+            color: #eef6ff;
+            border: 1px solid #4f6072;
+            border-radius: 6px;
+            padding: 7px 9px;
+            box-shadow: 0 6px 24px #0009;
+            font: 12.5px/1.35 var(--mono);
+            white-space: nowrap
+        }
+
+            #valueHoverTooltip .hoverToken {
+                color: #9bc7ff;
+                margin-bottom: 3px
+            }
+
+            #valueHoverTooltip .hoverValue {
+                color: #dfe9f5
+            }
+
         @media(max-width:900px) {
             #workspace {
                 grid-template-columns: 1fr;
@@ -532,6 +556,7 @@
         </section>
     </div>
     <div class="dropHint" id="dropHint">Drop source/project files here</div>
+    <div id="valueHoverTooltip" role="tooltip" aria-hidden="true"></div>
     <dialog id="helpDialog">
         <div class="dialogHead"><strong>Assembler syntax</strong><button class="closeBtn" id="closeHelp">×</button></div>
         <div class="dialogBody">
@@ -1135,6 +1160,7 @@ message:
 
             const editor = byId('editor');
             const lineNumbersInner = byId('lineNumbersInner');
+            const valueHoverTooltip = byId('valueHoverTooltip');
             const fileSelect = byId('fileSelect');
             const dirtyIndicator = byId('dirty');
             const openInput = byId('openInput');
@@ -1150,6 +1176,8 @@ message:
             let currentFile = '';
             let isDirty = false;
             let lastResult = null;
+            let hoverTimer = null;
+            let hoverTokenKey = '';
 
             // Public GitHub source repository used by "Load GitHub sources".
             // Keeping this configuration here makes it easy to point a copied assembler
@@ -1167,19 +1195,19 @@ OSWRCH = &FFEE
 ORG &1900
 
 start:
-            LDX #0
+        LDX #0
 .loop:
-            LDA message,X
-            BEQ done
-            JSR OSWRCH
-            INX
-            BNE .loop
+        LDA message,X
+        BEQ done
+        JSR OSWRCH
+        INX
+        BNE .loop
 .done:
-            RTS
+        RTS
 
 message:
-            EQUS "HELLO FROM 6502!"
-            EQUB 13,10,0
+        EQUS "HELLO FROM 6502!"
+        EQUB 13,10,0
 `;
 
             function setDirty(value) {
@@ -1823,41 +1851,41 @@ message:
 
                 if (result.success) {
                     html += `
-                <div class="summary">
-                  <div class="key">Status</div><div class="good">BUILD OK</div>
-                  <div class="key">Origin</div><div>${hex4(result.origin)}</div>
-                  <div class="key">End</div><div>${hex4(result.end)}</div>
-                  <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
-                  <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
-                  <div class="key">Segments</div><div>${result.segments.length}</div>
-                  <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
-                  <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
-                  <div class="key">Boot loading</div><div>${(result.relocations || []).length ? `${result.relocations.length} @relocate range${result.relocations.length === 1 ? '' : 's'}` : (result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment')}</div>
-                  <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
-                  <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
-                  ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
-                </div>`;
+            <div class="summary">
+              <div class="key">Status</div><div class="good">BUILD OK</div>
+              <div class="key">Origin</div><div>${hex4(result.origin)}</div>
+              <div class="key">End</div><div>${hex4(result.end)}</div>
+              <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
+              <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
+              <div class="key">Segments</div><div>${result.segments.length}</div>
+              <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
+              <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
+              <div class="key">Boot loading</div><div>${(result.relocations || []).length ? `${result.relocations.length} @relocate range${result.relocations.length === 1 ? '' : 's'}` : (result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment')}</div>
+              <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
+              <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
+              ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
+            </div>`;
                 } else {
                     html += `
-                <div class="summary">
-                  <div class="key">Status</div><div class="bad">BUILD FAILED</div>
-                  <div class="key">Errors</div><div>${result.errors.length}</div>
-                </div>`;
+            <div class="summary">
+              <div class="key">Status</div><div class="bad">BUILD FAILED</div>
+              <div class="key">Errors</div><div>${result.errors.length}</div>
+            </div>`;
                 }
 
                 for (const error of result.errors) {
                     html += `
-                <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
-                  <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
-                  ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
-                </div>`;
+            <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
+              <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
+              ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
+            </div>`;
                 }
 
                 for (const warning of result.warnings) {
                     html += `
-                <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
-                  <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
-                </div>`;
+            <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
+              <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
+            </div>`;
                 }
 
                 buildContent.innerHTML = html;
@@ -1886,11 +1914,11 @@ message:
                     const segmentName = `${stem(currentFile)}_${segment.start.toString(16).padStart(4, '0')}_${segment.end.toString(16).padStart(4, '0')}.bin`;
 
                     row.innerHTML = `
-                <td>${index + 1}</td>
-                <td class="addr">${hex4(segment.start)}</td>
-                <td class="addr">${hex4(segment.end)}</td>
-                <td>${segment.bytes.length.toLocaleString()}</td>
-                <td class="segmentActions"><button>Save</button></td>`;
+            <td>${index + 1}</td>
+            <td class="addr">${hex4(segment.start)}</td>
+            <td class="addr">${hex4(segment.end)}</td>
+            <td>${segment.bytes.length.toLocaleString()}</td>
+            <td class="segmentActions"><button>Save</button></td>`;
 
                     row.querySelector('button').onclick = () => {
                         downloadBlob(segment.bytes, segmentName);
@@ -1917,8 +1945,8 @@ message:
                         const row = document.createElement('tr');
                         row.className = 'symbolRow';
                         row.innerHTML = `
-                  <td class="addr">${hex4(value & 0xFFFF)}</td>
-                  <td>${escapeHtml(name)}</td>`;
+              <td class="addr">${hex4(value & 0xFFFF)}</td>
+              <td>${escapeHtml(name)}</td>`;
                         row.onclick = () => jumpToSymbol(name);
                         body.appendChild(row);
                     });
@@ -2878,6 +2906,120 @@ message:
                 });
             }
 
+
+            function hideValueHoverTooltip() {
+                if (hoverTimer !== null) {
+                    clearTimeout(hoverTimer);
+                    hoverTimer = null;
+                }
+                hoverTokenKey = '';
+                valueHoverTooltip.style.display = 'none';
+                valueHoverTooltip.setAttribute('aria-hidden', 'true');
+            }
+
+            function numericHoverValue(token) {
+                if (/^&[0-9A-Fa-f]+$/.test(token)) return parseInt(token.slice(1), 16);
+                if (/^\$[0-9A-Fa-f]+$/.test(token)) return parseInt(token.slice(1), 16);
+                if (/^%[01]+$/.test(token)) return parseInt(token.slice(1), 2);
+                if (/^\d+$/.test(token)) return parseInt(token, 10);
+
+                if (!isDirty && lastResult?.success && lastResult.symbols) {
+                    const wanted = token.toUpperCase();
+                    const entry = Object.entries(lastResult.symbols).find(([name]) => name.toUpperCase() === wanted);
+                    if (entry && Number.isFinite(entry[1])) return entry[1];
+                }
+
+                return null;
+            }
+
+            function tokenAtSourcePosition(lineText, rawIndex) {
+                const candidates = [];
+                const pattern = /&[0-9A-Fa-f]+|\$[0-9A-Fa-f]+|%[01]+|\d+|[A-Za-z_.$@][A-Za-z0-9_.$@]*/g;
+                let match;
+                while ((match = pattern.exec(lineText)) !== null) {
+                    candidates.push({ text: match[0], start: match.index, end: match.index + match[0].length });
+                }
+
+                return candidates.find((candidate) => rawIndex >= candidate.start && rawIndex < candidate.end) || null;
+            }
+
+            function rawIndexFromVisualColumn(lineText, visualColumn) {
+                let column = 0;
+                for (let index = 0; index < lineText.length; index++) {
+                    const width = lineText[index] === '\t' ? 4 - (column % 4) : 1;
+                    if (visualColumn < column + width) return index;
+                    column += width;
+                }
+                return lineText.length;
+            }
+
+            function sourceTokenFromMouse(event) {
+                const style = getComputedStyle(editor);
+                const rect = editor.getBoundingClientRect();
+                const lineHeight = parseFloat(style.lineHeight);
+                const fontSize = parseFloat(style.fontSize);
+                const paddingTop = parseFloat(style.paddingTop) || 0;
+                const paddingLeft = parseFloat(style.paddingLeft) || 0;
+
+                const canvas = sourceTokenFromMouse.canvas || (sourceTokenFromMouse.canvas = document.createElement('canvas'));
+                const context = canvas.getContext('2d');
+                context.font = `${style.fontWeight} ${fontSize}px ${style.fontFamily}`;
+                const charWidth = context.measureText('M').width || (fontSize * 0.6);
+
+                const y = event.clientY - rect.top + editor.scrollTop - paddingTop;
+                const x = event.clientX - rect.left + editor.scrollLeft - paddingLeft;
+                if (x < 0 || y < 0) return null;
+
+                const lineIndex = Math.floor(y / lineHeight);
+                const lines = editor.value.split('\n');
+                if (lineIndex < 0 || lineIndex >= lines.length) return null;
+
+                const lineText = lines[lineIndex];
+                const visualColumn = Math.max(0, Math.floor(x / charWidth));
+                const rawIndex = rawIndexFromVisualColumn(lineText, visualColumn);
+                const token = tokenAtSourcePosition(lineText, rawIndex);
+                if (!token) return null;
+
+                const value = numericHoverValue(token.text);
+                if (!Number.isFinite(value)) return null;
+
+                return { token: token.text, value, lineIndex, start: token.start };
+            }
+
+            function showValueHoverTooltip(info, event) {
+                const magnitude = Math.abs(info.value);
+                const hexDigits = magnitude <= 0xFF ? 2 : magnitude <= 0xFFFF ? 4 : 8;
+                const hex = (info.value < 0 ? '-&' : '&') + magnitude.toString(16).toUpperCase().padStart(hexDigits, '0');
+                valueHoverTooltip.innerHTML =
+                    `<div class="hoverToken">${escapeHtml(info.token)}</div>` +
+                    `<div class="hoverValue">HEX ${hex} &nbsp;&nbsp; DEC ${info.value}</div>`;
+
+                const margin = 14;
+                valueHoverTooltip.style.left = `${Math.min(event.clientX + 14, window.innerWidth - 220)}px`;
+                valueHoverTooltip.style.top = `${Math.min(event.clientY + 18, window.innerHeight - 70)}px`;
+                valueHoverTooltip.style.display = 'block';
+                valueHoverTooltip.setAttribute('aria-hidden', 'false');
+            }
+
+            function handleEditorHover(event) {
+                const info = sourceTokenFromMouse(event);
+                if (!info) {
+                    hideValueHoverTooltip();
+                    return;
+                }
+
+                const key = `${info.lineIndex}:${info.start}:${info.token}:${info.value}`;
+                if (key === hoverTokenKey) return;
+
+                hideValueHoverTooltip();
+                hoverTokenKey = key;
+                const snapshot = { clientX: event.clientX, clientY: event.clientY };
+                hoverTimer = setTimeout(() => {
+                    hoverTimer = null;
+                    if (hoverTokenKey === key) showValueHoverTooltip(info, snapshot);
+                }, 1000);
+            }
+
             function updateLineNumbers() {
                 const lineCount = editor.value.split('\n').length;
                 const numbers = new Array(lineCount);
@@ -3005,10 +3147,13 @@ message:
             // Editor state.
             editor.addEventListener('input', () => {
                 setDirty(true);
+                hideValueHoverTooltip();
                 updateLineNumbers();
                 updateCursor();
             });
-            editor.addEventListener('scroll', syncLineNumberScroll);
+            editor.addEventListener('scroll', () => { syncLineNumberScroll(); hideValueHoverTooltip(); });
+            editor.addEventListener('mousemove', handleEditorHover);
+            editor.addEventListener('mouseleave', hideValueHoverTooltip);
             editor.addEventListener('keydown', handleEditorTab);
             editor.addEventListener('click', updateCursor);
             editor.addEventListener('keyup', updateCursor);
