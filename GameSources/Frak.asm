@@ -3,54 +3,48 @@
 ;
 ; PURPOSE
 ; -------
-; This is the first BUILDABLE source baseline for the reverse-engineering project.
-; It deliberately prioritises a dependable compile/run cycle over annotation.
+; Clean, deprotected, relocatable reconstruction of Frak!.
 ;
-; The original Frak3 payload is encrypted on disk.  This source contains the
-; DECRYPTED Frak3 image at its original load address (&2F00).  The only code
-; change is the three-byte JMP at &2F0D: instead of entering Frak2 to decrypt an
-; already-decoded payload, it jumps directly to the original decoded startup at
-; Bootstrap (&468B).  The original zero-page seed copy still runs first.
+; This source no longer contains the original Frak2 decryptor, Frak3 encrypted
+; payload, rolling zero-page seed blob, inline relocation records, or the
+; return-address-manipulating relocation routine.  Those belonged to the
+; original distribution/protection/loading scheme, not to the game engine.
 ;
-; Bootstrap is otherwise byte-for-byte original code.  It performs the game's
-; original relocations, vector/VIA setup, sprite pointer initialisation and then
-; transfers to the relocated game entry at &0380.
+; The file is still loaded as one relocatable packed image because BBC DFS must
+; not load directly over Frak's low-memory live map.  The startup code switches
+; to the cassette filing system, then copies only the eight ranges that really
+; survive in the game's runtime map.  Copy parameters are explicit source code,
+; not hidden inline records.
 ;
 ; RELOCATABLE SOURCE IMAGE
 ; ------------------------
 ; @default-origin &2F00
 ;
-; There is deliberately NO ORG directive in this source.  &2F00 is only the
-; historical/default load address used by the BBC 6502 Web Assembler UI.
-; Change the Origin field to move the packed source image.
+; There is deliberately NO ORG directive.  &2F00 is only the convenient
+; historical/default packed-image address.  Change the assembler Origin field
+; to move the load image; all packed-image references are labels.
 ;
-; Frak is unusual: this packed image is not the final runtime layout.  Bootstrap
-; copies eight ranges down into the game's intentional low-memory runtime map.
-; All addresses which point back into THIS packed image are labels/expressions,
-; so moving the assembly origin moves those pointers coherently.  Numeric low
-; addresses which remain are genuine fixed BBC MOS/hardware/zero-page/runtime
-; workspace locations used by the original game.
-;
-; Safe alternate origins must leave the packed image resident while Bootstrap
-; performs its copies.  Origins >= &3000 are the simplest choices; keep the end
-; of the &2D4B-byte image below the boot loader's high-RAM mover/screen workspace.
+; Frak's live low-memory layout is intentionally retained.  It contains genuine
+; design choices such as title/startup code at &0380 later being overwritten by
+; the parallel object arrays.  MOS vectors, hardware registers, zero page and
+; those runtime workspaces therefore remain fixed addresses.
 ;
 ; BBC 6502 Web Assembler
 ; ----------------------
 ; 1. Open this file.
 ; 2. Assemble.
-; 3. Save boot disk.
-; 4. Boot entry is selected automatically as: start (the chosen Origin)
+; 3. Save boot disk / Run in jsbeeb.
+; 4. Entry point: start (selected automatically).
 ; 5. Suggested DFS title/program name: FRAK / FRAK
 ;
-; The assembler's generated boot loader selects MODE 7 and relocates this image
-; to the selected Origin before entering start/RunEntry.  At the historical
-; &2F00 default it ends at &5C4A, safely below the loader's temporary mover.
+; The generated BASIC loader first stages this packed image safely in RAM.
+; Frak's startup then selects *TAPE before installing the live low-memory image,
+; so DFS workspace cannot overwrite the game after startup.
 ;
 ; Original loader compatibility setting retained:
 ; @basic *FX200,2
 ;
-; Known runtime symbols (destinations after Bootstrap relocation)
+; Known runtime symbols (destinations after startup installation)
 ; -----------------------------------------------------------------------------
 ; These are RUNTIME addresses, not addresses of the packed source image.
 ; They intentionally remain in Frak's original low-memory map.
@@ -60,7 +54,7 @@ OSBYTE                  = &FFF4
 OSCLI                   = &FFF7
 EVENTV                  = &0220
 IRQ1V                   = &0204
-USERV                   = &0228
+KEYV                    = &0228
 CRTC_ADDRESS            = &FE00
 CRTC_DATA               = &FE01
 SYSTEM_VIA_IER          = &FE4E
@@ -107,7 +101,7 @@ SoundIRQ                = &0D69
 Inkey                   = &0D9C
 RandomBelowA            = &0DB6
 ClearObjectTables       = &0DDB
-UserVHandler            = &0DF4
+KeyVHandler            = &0DF4
 OSBYTEWrapper           = &0DFB
 OSWORDWrapper           = &0E03
 TestLadderCollision     = &0E0B
@@ -162,15 +156,20 @@ SpriteWidthFlags        = &216D
 SpriteHeightCount       = &21C9
 
 ; Frequently used zero-page game state.
+; &1E-&20 are saved/restored by the recursive composite-sprite walker.
+; They are scratch state, not object type constants, despite &1E also being the
+; numeric Poglet sprite/type ID elsewhere in the game.
+SpriteTraversalCount   = &1E
+SpriteTraversalPtrLo   = &1F
+SpriteTraversalPtrHi   = &20
 CurrentSpriteX          = &11
 CurrentSpriteY          = &12
 InkeyCode               = &21
 Scratch26               = &26
 RandomMask              = &27
 RandomState             = &28
-RelocLengthHi           = &26
-InlinePtrLo             = &29
-InlinePtrHi             = &2A
+IndirectPtrLo            = &29
+IndirectPtrHi            = &2A
 GameState2F             = &2F
 InputPhase              = &32
 SavedObjectIndex        = &33
@@ -180,14 +179,14 @@ ScoreHi                 = &3A
 Lives                   = &3B
 BaseScreen              = &3C
 TransformCycle          = &3D
-RelocSourceLo           = &3F
-RelocSourceHi           = &40
-RelocDestLo             = &41
-RelocDestHi             = &42
+WorkPtrLo               = &3F
+WorkPtrHi               = &40
+Work41                  = &41
+Work42                  = &42
 TickCounter             = &44
 SoundEnabled            = &4B
-SavedUserVLo            = &4C
-SavedUserVHi            = &4D
+SavedKeyVLo            = &4C
+SavedKeyVHi            = &4D
 SavedIRQ1VLo            = &4E
 SavedIRQ1VHi            = &4F
 State53                 = &53
@@ -228,51 +227,28 @@ TYPE_DAGGER_FLIP      = &26
 TYPE_BALLOON          = &27
 TYPE_TROGG_0          = &34
 
+; Startup-only scatter-loader scratch. These are overwritten with normal game
+; sprite descriptor pointers before RuntimeGameEntry is entered.
+LoaderSourceLo          = &00
+LoaderSourceHi          = &01
+LoaderDestLo            = &02
+LoaderDestHi            = &03
+LoaderLengthHi          = &06
+
+
 
 ; -----------------------------------------------------------------------------
 ; Boot/load entry.
 ;
 ; IMPORTANT: the web assembler prefers a symbol named "start" for its boot-disk
-; entry-point default.  &0380 is only the INTERNAL entry reached after Bootstrap
-; has relocated the game; it must not be used as the DFS/BASIC loader entry.
+; entry-point default.  &0380 is only the INTERNAL entry reached after startup
+; has installed the runtime image; it must not be used as the DFS/BASIC loader entry.
 ; -----------------------------------------------------------------------------
 start:
+        JMP CleanStartup
 
 ; -----------------------------------------------------------------------------
-; Deprotected entry. These instructions are symbolic already; bytes &2F00-&2F0C
-; are the original Frak3 entry. Only the JMP target is intentionally changed.
-; -----------------------------------------------------------------------------
-RunEntry:
-        LDY #&00
-CopyZeroPageSeed:
-        LDA ZeroPageSeed,Y
-        STA &0000,Y
-        INY
-        CPY #&98
-        BNE CopyZeroPageSeed
-        JMP Bootstrap
-
-; -----------------------------------------------------------------------------
-; &2F10: Original bootstrap state copied to zero page &0000-&0097.
-; -----------------------------------------------------------------------------
-ZeroPageSeed:
-        EQUB &F0,&87,&2C,&6D,&F6,&05,&46,&EB,&BE,&24,&C4,&EC,&79,&A0,&63,&BE    ; &2F10
-        EQUB &82,&D2,&72,&94,&E5,&C0,&CF,&90,&E9,&BE,&E0,&30,&12,&C8,&2A,&C8    ; &2F20
-        EQUB &D4,&AF,&24,&6D,&D9,&19,&41,&78,&30,&81,&DF,&AB,&FA,&86,&BF,&93    ; &2F30
-        EQUB &F4,&02,&0D,&72,&70,&B5,&D3,&96,&7F,&0F,&F7,&D1,&FF,&CB,&06,&74    ; &2F40
-        EQUB &9F,&6B,&EF,&48,&66,&61,&EA,&7F,&38,&7A,&65,&B6,&2B,&0A,&74,&C9    ; &2F50
-        EQUB &93,&C0,&A2,&30,&40,&ED,&2F,&AC,&0F,&46,&CE,&0E,&A0,&7A,&51,&3D    ; &2F60
-        EQUB &89,&8C,&23,&37,&24,&59,&04,&92,&C0,&2A,&8A,&36,&FF,&28,&0F,&03    ; &2F70
-        EQUB &78,&8B,&6E,&07,&D9,&87,&34,&DA,&77,&A9,&22,&BB,&B2,&54,&7D,&0D    ; &2F80
-        EQUB &84,&CD,&B5,&DF,&B0,&CD,&C0,&04,&B4,&B8,&E5,&B2,&BE,&10,&08,&67    ; &2F90
-        EQUB &40,&D9,&3E,&24,&97,&20,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &2FA0
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &2FB0
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &2FC0
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &2FD0
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &2FE0
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &2FF0
-; -----------------------------------------------------------------------------
-; &3000: Relocated by Bootstrap: &3000-&31F2 -> runtime &0B00-&0CF2.
+; Packed runtime block installed at &0B00-&0CF2.
 ; -----------------------------------------------------------------------------
 Runtime_0B00_Source:
 ; Queue descriptors.  Each queue's final byte is the next queue's first slot,
@@ -421,7 +397,7 @@ Core_ScreenComplete:
         JSR ScreenComplete
         DEC GameState2F
         LDY #&0A
-        STY RelocSourceLo           ; reused by game as a temporary counter
+        STY WorkPtrLo           ; reused by game as a temporary counter
 Core_TimeBonusOuter:
         LDA TimeLoBCD
         JSR AddScoreBCD
@@ -433,7 +409,7 @@ Core_TimeBonusHigh:
         DEX
         BNE Core_TimeBonusHigh
 Core_TimeBonusOuterDone:
-        DEC RelocSourceLo
+        DEC WorkPtrLo
         BNE Core_TimeBonusOuter
 
         INC BaseScreen
@@ -566,7 +542,7 @@ Core_NewGameRuntime = &0B5A
 
 Runtime_0B00_SourceEnd:
 ; -----------------------------------------------------------------------------
-; &31F3: Relocated by Bootstrap: &31F3-&46DD -> runtime &0D01-&21EB.
+; Packed main-engine source. Startup installs only the surviving &0D01-&1FFC bytes.
 ; -----------------------------------------------------------------------------
 Runtime_0D01_Source:
 ; Wait for the 50 Hz/event tick counter to change.
@@ -602,27 +578,27 @@ Main_WaitRasterTimer:
 ; stream, then jumps indirectly to the byte after the terminator.
 Main_PrintInlineStream:
         PLA
-        STA InlinePtrLo
+        STA IndirectPtrLo
         PLA
-        STA InlinePtrHi
+        STA IndirectPtrHi
         TYA
         PHA
         JMP PrintInlineAdvance
 Main_PrintInlineNext:
         LDY #&00
-        LDA (InlinePtrLo),Y
+        LDA (IndirectPtrLo),Y
         CMP #&EA
         BEQ Main_PrintInlineDone
         JSR OSWRCH
 Main_PrintInlineAdvanceSource:
-        INC InlinePtrLo
+        INC IndirectPtrLo
         BNE Main_PrintInlineNext
-        INC InlinePtrHi
+        INC IndirectPtrHi
         BNE Main_PrintInlineNext
 Main_PrintInlineDone:
         PLA
         TAY
-        JMP (InlinePtrLo)
+        JMP (IndirectPtrLo)
 
 ; EVENTV handler.  Reload User VIA Timer 2, advance the game tick and maintain
 ; the two-byte countdown state unless pause/freeze gates suppress it.
@@ -651,7 +627,7 @@ Main_TickIRQDone:
         RTS
 
 ; IRQ1V handler.  Service User VIA Timer 2/Timer 1 work owned by Frak and then
-; chain through the IRQ1V vector which Bootstrap saved in &4E/&4F.
+; chain through the IRQ1V vector which startup saved in &4E/&4F.
 Main_SoundIRQ:
         PHP
         PHA
@@ -753,12 +729,12 @@ Main_ClearDynamicSlots:
 Main_ClearObjectDone:
         RTS
 
-; USERV filter installed by Bootstrap.  Requests not consumed here are chained
-; to the previous USERV saved in &4C/&4D.
-Main_UserVHandler:
+; KEYV filter installed by startup. Requests not consumed here are chained
+; to the previous KEYV saved in &4C/&4D.
+Main_KeyVHandler:
         BVS Main_ClearObjectDone
         BCC Main_ClearObjectDone
-        JMP (SavedUserVLo)
+        JMP (SavedKeyVLo)
 
 ; MOS wrappers bracket calls with OSCallGate so interrupt-side code can see that
 ; a MOS call is in progress.
@@ -1475,11 +1451,11 @@ Code_TypeDispatch:
 L12DB:
         PHA                                          ; &12DB: 48
         LDA     &12EB,Y                              ; &12DC: B9 EB 12
-        STA     InlinePtrLo                          ; &12DF: 85 29
+        STA     IndirectPtrLo                          ; &12DF: 85 29
         LDA     &12EC,Y                              ; &12E1: B9 EC 12
-        STA     InlinePtrHi                          ; &12E4: 85 2A
+        STA     IndirectPtrHi                          ; &12E4: 85 2A
         PLA                                          ; &12E6: 68
-        JMP     (InlinePtrLo)                        ; &12E7: 6C 29 00
+        JMP     (IndirectPtrLo)                        ; &12E7: 6C 29 00
         EQUB &17,&92,&12,&23,&B7,&12,&16,&A9,&12,&27,&68,&1C,&25,&79,&1C    ; runtime &12EA
 
 ; -----------------------------------------------------------------------------
@@ -1598,34 +1574,34 @@ L1362:
         LDX     #&20                                 ; &1390: A2 20
         LDA     Scratch26                            ; &1392: A5 26
         LDA     #&00                                 ; &1394: A9 00
-        STA     RelocSourceLo                        ; &1396: 85 3F
+        STA     WorkPtrLo                        ; &1396: 85 3F
         LDY     &0C                                  ; &1398: A4 0C
         LDA     &0D                                  ; &139A: A5 0D
 L139C:
-        STA     RelocSourceHi                        ; &139C: 85 40
+        STA     WorkPtrHi                        ; &139C: 85 40
         LDA     #&00                                 ; &139E: A9 00
-        STA     (RelocSourceLo),Y                    ; &13A0: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13A0: 91 3F
         INY                                          ; &13A2: C8
-        STA     (RelocSourceLo),Y                    ; &13A3: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13A3: 91 3F
         INY                                          ; &13A5: C8
-        STA     (RelocSourceLo),Y                    ; &13A6: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13A6: 91 3F
         INY                                          ; &13A8: C8
-        STA     (RelocSourceLo),Y                    ; &13A9: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13A9: 91 3F
         INY                                          ; &13AB: C8
-        STA     (RelocSourceLo),Y                    ; &13AC: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13AC: 91 3F
         INY                                          ; &13AE: C8
-        STA     (RelocSourceLo),Y                    ; &13AF: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13AF: 91 3F
         INY                                          ; &13B1: C8
-        STA     (RelocSourceLo),Y                    ; &13B2: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13B2: 91 3F
         INY                                          ; &13B4: C8
-        STA     (RelocSourceLo),Y                    ; &13B5: 91 3F
+        STA     (WorkPtrLo),Y                    ; &13B5: 91 3F
         DEX                                          ; &13B7: CA
         BEQ     L13CA                                ; &13B8: F0 10
         CLC                                          ; &13BA: 18
         TYA                                          ; &13BB: 98
         ADC     #&79                                 ; &13BC: 69 79
         TAY                                          ; &13BE: A8
-        LDA     RelocSourceHi                        ; &13BF: A5 40
+        LDA     WorkPtrHi                        ; &13BF: A5 40
         ADC     #&02                                 ; &13C1: 69 02
         BPL     L139C                                ; &13C3: 10 D7
         SEC                                          ; &13C5: 38
@@ -1697,20 +1673,20 @@ L1425:
 ; -----------------------------------------------------------------------------
 Code_SetCrtcOrigin:
         LDA     &0C                                  ; &1428: A5 0C
-        STA     RelocSourceLo                        ; &142A: 85 3F
+        STA     WorkPtrLo                        ; &142A: 85 3F
         LDA     &0D                                  ; &142C: A5 0D
         LSR     A                                    ; &142E: 4A
-        ROR     RelocSourceLo                        ; &142F: 66 3F
+        ROR     WorkPtrLo                        ; &142F: 66 3F
         LSR     A                                    ; &1431: 4A
-        ROR     RelocSourceLo                        ; &1432: 66 3F
+        ROR     WorkPtrLo                        ; &1432: 66 3F
         LSR     A                                    ; &1434: 4A
-        ROR     RelocSourceLo                        ; &1435: 66 3F
+        ROR     WorkPtrLo                        ; &1435: 66 3F
         LDX     #&0C                                 ; &1437: A2 0C
         SEI                                          ; &1439: 78
         STX     CRTC_ADDRESS                         ; &143A: 8E 00 FE
         STA     CRTC_DATA                            ; &143D: 8D 01 FE
         INX                                          ; &1440: E8
-        LDA     RelocSourceLo                        ; &1441: A5 3F
+        LDA     WorkPtrLo                        ; &1441: A5 3F
         STX     CRTC_ADDRESS                         ; &1443: 8E 00 FE
         STA     CRTC_DATA                            ; &1446: 8D 01 FE
         CLI                                          ; &1449: 58
@@ -1990,7 +1966,7 @@ Code_HighScoreInsert:
         TSX                                          ; &164D: BA
         STX     &7E                                  ; &164E: 86 7E
         LDA     #&06                                 ; &1650: A9 06
-        STA     RelocDestHi                          ; &1652: 85 42
+        STA     Work42                          ; &1652: 85 42
         LDY     #&FF                                 ; &1654: A0 FF
         LDX     #&1E                                 ; &1656: A2 1E
 L1658:
@@ -2001,7 +1977,7 @@ L1658:
         LDA     ScoreHi                              ; &1662: A5 3A
         SBC     &0883,X                              ; &1664: FD 83 08
         BCC     L1672                                ; &1667: 90 09
-        DEC     RelocDestHi                          ; &1669: C6 42
+        DEC     Work42                          ; &1669: C6 42
         TXA                                          ; &166B: 8A
         TAY                                          ; &166C: A8
         SBC     #&06                                 ; &166D: E9 06
@@ -2028,7 +2004,7 @@ L1679:
         STA     HighScores,Y                         ; &1695: 99 80 08
         STA     &0881,Y                              ; &1698: 99 81 08
         STA     &0882,Y                              ; &169B: 99 82 08
-        STY     RelocSourceLo                        ; &169E: 84 3F
+        STY     WorkPtrLo                        ; &169E: 84 3F
         LDA     &0C                                  ; &16A0: A5 0C
         STA     &0350                                ; &16A2: 8D 50 03
         LDA     &0D                                  ; &16A5: A5 0D
@@ -2040,13 +2016,13 @@ L1679:
         EQUB &75,&6D,&70,&27,&20,&74,&6F,&20,&65,&6E,&74,&65,&72,&20,&6C,&65    ; runtime &16D0
         EQUB &74,&74,&65,&72,&EA    ; runtime &16E0
         JSR     &1583                                ; &16E5: 20 83 15
-        LDY     RelocDestHi                          ; &16E8: A4 42
+        LDY     Work42                          ; &16E8: A4 42
         JSR     &1AB3                                ; &16EA: 20 B3 1A
         LDA     #&03                                 ; &16ED: A9 03
-        STA     RelocDestHi                          ; &16EF: 85 42
+        STA     Work42                          ; &16EF: 85 42
         LDA     #&41                                 ; &16F1: A9 41
-        STA     RelocDestLo                          ; &16F3: 85 41
-        LDA     RelocDestLo                          ; &16F5: A5 41
+        STA     Work41                          ; &16F3: 85 41
+        LDA     Work41                          ; &16F5: A5 41
         JSR     OSWRCH                               ; &16F7: 20 EE FF
         LDA     #&08                                 ; &16FA: A9 08
         JSR     OSWRCH                               ; &16FC: 20 EE FF
@@ -2054,9 +2030,9 @@ L1679:
         BNE     L175A                                ; &1702: D0 56
         LDA     InputState                           ; &1704: A5 87
         STA     InputMode                            ; &1706: 85 86
-        LDX     RelocDestLo                          ; &1708: A6 41
+        LDX     Work41                          ; &1708: A6 41
         JSR     ReadHorizontal                       ; &170A: 20 F9 12
-        CPX     RelocDestLo                          ; &170D: E4 41
+        CPX     Work41                          ; &170D: E4 41
         BEQ     L172A                                ; &170F: F0 19
         CPX     #&7F                                 ; &1711: E0 7F
         BCC     L1719                                ; &1713: 90 04
@@ -2068,7 +2044,7 @@ L1719:
         LDX     #&7E                                 ; &171D: A2 7E
 L171F:
         TXA                                          ; &171F: 8A
-        STA     RelocDestLo                          ; &1720: 85 41
+        STA     Work41                          ; &1720: 85 41
         JSR     OSWRCH                               ; &1722: 20 EE FF
         LDA     #&08                                 ; &1725: A9 08
         JSR     OSWRCH                               ; &1727: 20 EE FF
@@ -2077,12 +2053,12 @@ L172A:
         JSR     ReadVertical                         ; &172C: 20 1D 13
         TYA                                          ; &172F: 98
         BMI     L174A                                ; &1730: 30 18
-        LDY     RelocSourceLo                        ; &1732: A4 3F
-        LDA     RelocDestLo                          ; &1734: A5 41
+        LDY     WorkPtrLo                        ; &1732: A4 3F
+        LDA     Work41                          ; &1734: A5 41
         STA     HighScores,Y                         ; &1736: 99 80 08
         JSR     OSWRCH                               ; &1739: 20 EE FF
-        INC     RelocSourceLo                        ; &173C: E6 3F
-        DEC     RelocDestHi                          ; &173E: C6 42
+        INC     WorkPtrLo                        ; &173C: E6 3F
+        DEC     Work42                          ; &173E: C6 42
         BEQ     L1752                                ; &1740: F0 10
         LDA     #&14                                 ; &1742: A9 14
         JSR     &1AC7                                ; &1744: 20 C7 1A
@@ -2156,7 +2132,7 @@ L17F8:
 L1800:
         STY     &5C                                  ; &1800: 84 5C
         LDA     &0B03,Y                              ; &1802: B9 03 0B
-        STA     RelocSourceHi                        ; &1805: 85 40
+        STA     WorkPtrHi                        ; &1805: 85 40
         LDX     QueueDescriptors,Y                   ; &1807: BE 00 0B
         LDY     #&00                                 ; &180A: A0 00
         INC     LevelStreamLo                        ; &180C: E6 6D
@@ -2174,14 +2150,14 @@ L181A:
         INY                                          ; &181F: C8
         BNE     L1812                                ; &1820: D0 F0
 L1822:
-        STY     RelocSourceLo                        ; &1822: 84 3F
+        STY     WorkPtrLo                        ; &1822: 84 3F
 L1824:
         LDY     #&00                                 ; &1824: A0 00
         SEC                                          ; &1826: 38
         LDA     (LevelStreamLo),Y                    ; &1827: B1 6D
         PHA                                          ; &1829: 48
         AND     #&07                                 ; &182A: 29 07
-        ADC     RelocSourceLo                        ; &182C: 65 3F
+        ADC     WorkPtrLo                        ; &182C: 65 3F
         TAY                                          ; &182E: A8
         LDA     (&6B),Y                              ; &182F: B1 6B
         STA     &35                                  ; &1831: 85 35
@@ -2195,7 +2171,7 @@ L1824:
         DEX                                          ; &183D: CA
 L183E:
         INX                                          ; &183E: E8
-        CPX     RelocSourceHi                        ; &183F: E4 40
+        CPX     WorkPtrHi                        ; &183F: E4 40
         BCS     L17F2                                ; &1841: B0 AF
         LDA     ObjectSprite,X                       ; &1843: BD 5E 04
         CMP     #&FF                                 ; &1846: C9 FF
@@ -2522,22 +2498,22 @@ L1AF4:
         TXS                                          ; &1AF6: 9A
         SEC                                          ; &1AF7: 38
         RTS                                          ; &1AF8: 60
-        STA     InlinePtrLo                          ; &1AF9: 85 29
+        STA     IndirectPtrLo                          ; &1AF9: 85 29
         LSR     A                                    ; &1AFB: 4A
         LDA     &0100,Y                              ; &1AFC: B9 00 01
         ADC     &0101,Y                              ; &1AFF: 79 01 01
         SBC     &0102,Y                              ; &1B02: F9 02 01
-        EOR     InlinePtrLo                          ; &1B05: 45 29
+        EOR     IndirectPtrLo                          ; &1B05: 45 29
 L1B07:
         CMP     #&24                                 ; &1B07: C9 24
         BCC     L1B0F                                ; &1B09: 90 04
         SBC     #&24                                 ; &1B0B: E9 24
         BCS     L1B07                                ; &1B0D: B0 F8
 L1B0F:
-        STY     InlinePtrLo                          ; &1B0F: 84 29
+        STY     IndirectPtrLo                          ; &1B0F: 84 29
         TAY                                          ; &1B11: A8
         LDA     &1B5A,Y                              ; &1B12: B9 5A 1B
-        LDY     InlinePtrLo                          ; &1B15: A4 29
+        LDY     IndirectPtrLo                          ; &1B15: A4 29
         INY                                          ; &1B17: C8
         JMP     OSWRCH                               ; &1B18: 4C EE FF
         EQUB &22,&34,&12,&1D    ; runtime &1B1B
@@ -2832,36 +2808,36 @@ Code_SpriteTraversal:
         LDY     Scratch26                            ; &1D41: A4 26
         RTS                                          ; &1D43: 60
 L1D44:
-        LDA     TYPE_POGLET                          ; &1D44: A5 1E
+        LDA     SpriteTraversalCount                 ; &1D44: A5 1E
         PHA                                          ; &1D46: 48
-        LDA     &1F                                  ; &1D47: A5 1F
+        LDA     SpriteTraversalPtrLo                 ; &1D47: A5 1F
         PHA                                          ; &1D49: 48
-        LDA     &20                                  ; &1D4A: A5 20
+        LDA     SpriteTraversalPtrHi                 ; &1D4A: A5 20
         PHA                                          ; &1D4C: 48
         LDA     (&0A),Y                              ; &1D4D: B1 0A
-        STA     TYPE_POGLET                          ; &1D4F: 85 1E
+        STA     SpriteTraversalCount                 ; &1D4F: 85 1E
         CLC                                          ; &1D51: 18
         LDA     &00                                  ; &1D52: A5 00
         ADC     (&04),Y                              ; &1D54: 71 04
-        STA     &1F                                  ; &1D56: 85 1F
+        STA     SpriteTraversalPtrLo                 ; &1D56: 85 1F
         LDA     &01                                  ; &1D58: A5 01
         ADC     (&06),Y                              ; &1D5A: 71 06
-        STA     &20                                  ; &1D5C: 85 20
+        STA     SpriteTraversalPtrHi                 ; &1D5C: 85 20
 L1D5E:
         LDY     #&02                                 ; &1D5E: A0 02
         LDA     CurrentSpriteY                       ; &1D60: A5 12
         PHA                                          ; &1D62: 48
         CLC                                          ; &1D63: 18
-        ADC     (&1F),Y                              ; &1D64: 71 1F
+        ADC     (SpriteTraversalPtrLo),Y             ; &1D64: 71 1F
         STA     CurrentSpriteY                       ; &1D66: 85 12
         DEY                                          ; &1D68: 88
         LDA     CurrentSpriteX                       ; &1D69: A5 11
         PHA                                          ; &1D6B: 48
         CLC                                          ; &1D6C: 18
-        ADC     (&1F),Y                              ; &1D6D: 71 1F
+        ADC     (SpriteTraversalPtrLo),Y             ; &1D6D: 71 1F
         STA     CurrentSpriteX                       ; &1D6F: 85 11
         DEY                                          ; &1D71: 88
-        LDA     (&1F),Y                              ; &1D72: B1 1F
+        LDA     (SpriteTraversalPtrLo),Y             ; &1D72: B1 1F
         TAY                                          ; &1D74: A8
         JSR     &1D30                                ; &1D75: 20 30 1D
         PLA                                          ; &1D78: 68
@@ -2869,22 +2845,22 @@ L1D5E:
         PLA                                          ; &1D7B: 68
         STA     CurrentSpriteY                       ; &1D7C: 85 12
         BCS     L1D8F                                ; &1D7E: B0 0F
-        LDA     &1F                                  ; &1D80: A5 1F
+        LDA     SpriteTraversalPtrLo                 ; &1D80: A5 1F
         ADC     #&03                                 ; &1D82: 69 03
-        STA     &1F                                  ; &1D84: 85 1F
+        STA     SpriteTraversalPtrLo                 ; &1D84: 85 1F
         BCC     L1D8A                                ; &1D86: 90 02
-        INC     &20                                  ; &1D88: E6 20
+        INC     SpriteTraversalPtrHi                 ; &1D88: E6 20
 L1D8A:
-        DEC     TYPE_POGLET                          ; &1D8A: C6 1E
+        DEC     SpriteTraversalCount                 ; &1D8A: C6 1E
         BNE     L1D5E                                ; &1D8C: D0 D0
         CLC                                          ; &1D8E: 18
 L1D8F:
         PLA                                          ; &1D8F: 68
-        STA     &20                                  ; &1D90: 85 20
+        STA     SpriteTraversalPtrHi                 ; &1D90: 85 20
         PLA                                          ; &1D92: 68
-        STA     &1F                                  ; &1D93: 85 1F
+        STA     SpriteTraversalPtrLo                 ; &1D93: 85 1F
         PLA                                          ; &1D95: 68
-        STA     TYPE_POGLET                          ; &1D96: 85 1E
+        STA     SpriteTraversalCount                 ; &1D96: 85 1E
         RTS                                          ; &1D98: 60
         JSR     &1592                                ; &1D99: 20 92 15
         TYA                                          ; &1D9C: 98
@@ -3262,11 +3238,11 @@ Runtime_01A4_Source:
         EQUB &A5,&1A,&69,&50,&85,&1A,&90,&C8    ; &453B
 Runtime_01A4_SourceEnd:
 ; -----------------------------------------------------------------------------
-; &4543: Overlapping title/game entry block copied to runtime &0380-&048F.
+; Title/game entry block installed at runtime &0380-&048F.
 ; -----------------------------------------------------------------------------
 Runtime_0380_Source:
 ; -----------------------------------------------------------------------------
-; Runtime &0380: relocated game/title entry.
+; Runtime &0380: installed game/title entry.
 ; -----------------------------------------------------------------------------
 Title_RuntimeEntry:
         LDX #&01
@@ -3336,8 +3312,7 @@ Title_InitEightLoop:
 Runtime_0380_SourceEnd:
 
 
-; Four 14-byte OSWORD parameter/control blocks used by Bootstrap.  They lived
-; immediately after the title/cast block in the original packed image.
+; Four original 14-byte OSWORD parameter/control blocks used during startup.
 StartupOSWORD_Block0:
         EQUB &01,&01,&00,&00,&00,&01,&01,&01,&64,&F6,&FE,&FC,&64,&3C    ; original &4653
 StartupOSWORD_Block1:
@@ -3347,260 +3322,7 @@ StartupOSWORD_Block2:
 StartupOSWORD_Block3:
         EQUB &04,&82,&00,&FC,&02,&03,&03,&28,&28,&FC,&FB,&FB,&78,&74    ; original &467D
 ; -----------------------------------------------------------------------------
-; &468B: Decoded original startup: relocates runtime blocks, installs vectors/state, then JMP &0380.
-; -----------------------------------------------------------------------------
-Bootstrap:
-        SEI
-        LDX #&A2
-        TXS
-        CLD
-        LDA #&8C
-        LDX #&03
-        JSR OSBYTE
-        LDA #&40
-        STA &0D00                   ; original fixed game workspace
-        LDY #&0F
-        LDA #&00
-Bootstrap_ClearWorkspace:
-        STA &02A1,Y
-        DEY
-        BPL Bootstrap_ClearWorkspace
-
-; Relocation records are inline after each JSR. RelocateBlock consumes the six
-; bytes by rewriting the return address on the stack.  Source addresses are now
-; LABELS, which is what makes the packed image assembly-origin independent.
-Bootstrap_RelocateCore:
-        JSR RelocateBlock
-        EQUW Runtime_0B00_Source
-        EQUW QueueDescriptors
-        EQUW Runtime_0B00_SourceEnd-Runtime_0B00_Source
-
-Bootstrap_RelocateMain:
-        JSR RelocateBlock
-        EQUW Runtime_0D01_Source
-        EQUW WaitForTickChange
-        EQUW (Bootstrap_RelocateSoundParams+2)-Runtime_0D01_Source
-
-Bootstrap_RelocateSprites:
-        JSR RelocateBlock
-        EQUW Runtime_1FFD_Source
-        EQUW SpriteXOffsets
-        EQUW Runtime_1FFD_SourceEnd-Runtime_1FFD_Source
-
-Bootstrap_RelocateSoundLevels:
-        JSR RelocateBlock
-        EQUW Runtime_0507_Source
-        EQUW SoundStream
-        EQUW Runtime_0507_SourceEnd-Runtime_0507_Source
-
-Bootstrap_RelocateHighScores:
-        JSR RelocateBlock
-        EQUW Runtime_0880_Source
-        EQUW HighScores
-        EQUW Runtime_0880_SourceEnd-Runtime_0880_Source
-
-Bootstrap_RelocateMasks:
-        JSR RelocateBlock
-        EQUW Runtime_0A00_Source
-        EQUW Mode1Masks
-        EQUW Runtime_0A00_SourceEnd-Runtime_0A00_Source
-
-Bootstrap_RelocateSoundParams:
-        JSR RelocateBlock
-        EQUW Runtime_01A4_Source
-        EQUW &01A4
-        EQUW (Runtime_0380_Source+4)-Runtime_01A4_Source
-
-Bootstrap_RelocateTitle:
-        JSR RelocateBlock
-        EQUW Runtime_0380_Source
-        EQUW RuntimeGameEntry
-        EQUW Runtime_0380_SourceEnd-Runtime_0380_Source
-
-; Initialise four OSWORD control blocks retained in the packed source image.
-        LDX #<StartupOSWORD_Block0
-        LDY #>StartupOSWORD_Block0
-        LDA #&08
-        JSR OSWORDWrapper
-        LDX #<StartupOSWORD_Block1
-        LDY #>StartupOSWORD_Block1
-        LDA #&08
-        JSR OSWORDWrapper
-        LDX #<StartupOSWORD_Block2
-        LDY #>StartupOSWORD_Block2
-        LDA #&08
-        JSR OSWORDWrapper
-        LDX #<StartupOSWORD_Block3
-        LDY #>StartupOSWORD_Block3
-        LDA #&08
-        JSR OSWORDWrapper
-
-; Install the game EVENTV handler.  Preserve the pre-existing USERV in zero page
-; before installing Frak's USERV filter later in startup.
-        LDX #<TickIRQ
-        LDY #>TickIRQ
-        STY EVENTV+1
-        STX EVENTV
-        LDY USERV+1
-        LDX USERV
-        STY SavedUserVHi
-        STX SavedUserVLo
-
-        LDX #&04
-        LDA #&0E
-        JSR OSBYTEWrapper
-
-; Install the IRQ1V sound handler, again preserving the old vector.
-        LDY IRQ1V+1
-        LDX IRQ1V
-        STY SavedIRQ1VHi
-        STX SavedIRQ1VLo
-        LDX #<SoundIRQ
-        LDY #>SoundIRQ
-        STY IRQ1V+1
-        STX IRQ1V
-
-        LDX #&00
-        STX SoundEnabled
-        STX SoundIrqGate
-        STX Orientation
-        STX InputState
-        STX PauseGate
-        STX OSCallGate
-        DEX
-        STX GameState2F
-        STX InputMode
-        JSR ResetCountdownDivider
-
-; Build six zero-page pointers to the parallel sprite descriptor arrays.
-        LDX #<SpriteXOffsets
-        LDY #>SpriteXOffsets
-        STY &01
-        STX &00
-        LDX #<SpriteYOffsets
-        LDY #>SpriteYOffsets
-        STY &03
-        STX &02
-        LDX #<SpriteDefLo
-        LDY #>SpriteDefLo
-        STY &05
-        STX &04
-        LDX #<SpriteDefHi
-        LDY #>SpriteDefHi
-        STY &07
-        STX &06
-        LDX #<SpriteWidthFlags
-        LDY #>SpriteWidthFlags
-        STY &09
-        STX &08
-        LDX #<SpriteHeightCount
-        LDY #>SpriteHeightCount
-        STY &0B
-        STX &0A
-
-        LDA #&0A
-        STA SoundStreamCount
-        LDY #&CF
-        LDX #&20
-        LDA #&CA
-        JSR OSBYTEWrapper
-        LDY #&00
-        LDX #&08
-        LDA #&BE
-        JSR OSBYTEWrapper
-        LDA #&76
-        JSR OSBYTEWrapper
-        LDX #&28
-        LDA #&09
-        JSR OSBYTEWrapper
-        LDX #&14
-        LDA #&0A
-        JSR OSBYTEWrapper
-
-        LDA #&E0
-        STA USER_VIA_IER
-        LDA #&40
-        STA USER_VIA_ACR
-
-; Scan the packed sound stream and cache the five segment offsets in &8B-&8F.
-        LDY #&00
-        LDX #&8B
-Bootstrap_FindSoundStreams:
-        STY &00,X
-Bootstrap_ScanSoundStream:
-        INY
-        LDA SoundStream-1,Y
-        BPL Bootstrap_ScanSoundStream
-        INX
-        CPX #&8F
-        BCC Bootstrap_FindSoundStreams
-        STY &00,X
-
-; Install USERV then enable the required System VIA interrupt source.
-        LDX #<UserVHandler
-        LDY #>UserVHandler
-        STY USERV+1
-        STX USERV
-        LDA #&01
-        STA SYSTEM_VIA_IER
-        JMP RuntimeGameEntry
-
-; Original inline-record mover.  The JSR return address points immediately
-; before a six-byte record: source word, destination word, byte-count word.
-RelocateBlock:
-        PLA
-        STA InlinePtrLo
-        PLA
-        STA InlinePtrHi
-        LDY #&01
-        LDA (InlinePtrLo),Y
-        STA RelocSourceLo
-        INY
-        LDA (InlinePtrLo),Y
-        STA RelocSourceHi
-        INY
-        LDA (InlinePtrLo),Y
-        STA RelocDestLo
-        INY
-        LDA (InlinePtrLo),Y
-        STA RelocDestHi
-        INY
-        LDA (InlinePtrLo),Y
-        TAX
-        INY
-        LDA (InlinePtrLo),Y
-        STA RelocLengthHi
-        LDY #&00
-RelocateBlock_Copy:
-        LDA (RelocSourceLo),Y
-        STA (RelocDestLo),Y
-        TXA
-        BNE RelocateBlock_NoBorrow
-        DEC RelocLengthHi
-RelocateBlock_NoBorrow:
-        DEX
-        TXA
-        ORA RelocLengthHi
-        BEQ RelocateBlock_Done
-        INY
-        BNE RelocateBlock_Copy
-        INC RelocSourceHi
-        INC RelocDestHi
-        JMP RelocateBlock_Copy
-RelocateBlock_Done:
-        CLC
-        LDA InlinePtrLo
-        ADC #&06
-        TAX
-        LDA InlinePtrHi
-        ADC #&00
-        PHA
-        TXA
-        PHA
-        RTS
-
-; -----------------------------------------------------------------------------
-; &482C: Relocated by Bootstrap: &482C-&582E -> runtime &1FFD-&2FFF (sprite system/data).
+; Packed sprite system/data installed at runtime &1FFD-&2FFF.
 ; -----------------------------------------------------------------------------
 Runtime_1FFD_Source:
         EQUB &00,&01,&01,&01,&00,&01,&02,&01,&01,&FF,&00,&FF,&01,&00,&00,&00    ; &482C
@@ -3862,7 +3584,7 @@ Runtime_1FFD_Source:
         EQUB &22,&03,&1A    ; &582C
 Runtime_1FFD_SourceEnd:
 ; -----------------------------------------------------------------------------
-; &582F: Relocated by Bootstrap: &582F-&592E -> runtime &0A00-&0AFF (MODE 1 lookup table).
+; Packed MODE 1 lookup table installed at runtime &0A00-&0AFF.
 ; -----------------------------------------------------------------------------
 Runtime_0A00_Source:
         EQUB &FF,&EE,&DD,&CC,&BB,&AA,&99,&88,&77,&66,&55,&44,&33,&22,&11,&00    ; &582F
@@ -3883,7 +3605,7 @@ Runtime_0A00_Source:
         EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &591F
 Runtime_0A00_SourceEnd:
 ; -----------------------------------------------------------------------------
-; &592F: Relocated by Bootstrap: &592F-&5C26 -> runtime &0507-&07FE (sound/level data region).
+; Packed sound/level data installed at runtime &0507-&07FE.
 ; -----------------------------------------------------------------------------
 Runtime_0507_Source:
         EQUB &21,&21,&29,&31,&36,&22,&29,&36,&21,&20,&29,&36,&22,&29,&35,&3D    ; &592F
@@ -3936,7 +3658,7 @@ Runtime_0507_Source:
         EQUB &6E,&60,&9D,&56,&9F,&56,&00,&FF    ; &5C1F
 Runtime_0507_SourceEnd:
 ; -----------------------------------------------------------------------------
-; &5C27: Relocated by Bootstrap: &5C27-&5C4A -> runtime &0880-&08A3 (high-score table).
+; Packed high-score table installed at runtime &0880-&08A3.
 ; -----------------------------------------------------------------------------
 Runtime_0880_Source:
         EQUB &76,&26,&6F,&00,&01,&00,&4E,&49,&4B,&00,&01,&00,&42,&4F,&46,&00    ; &5C27
@@ -3944,6 +3666,322 @@ Runtime_0880_Source:
         EQUB &45,&00,&01,&00    ; &5C47
 
 Runtime_0880_SourceEnd:
+
+; =============================================================================
+; Clean startup / runtime installer
+; =============================================================================
+; This code is deliberately stored after all packed runtime source data.  At the
+; historical &2F00 origin the sprite installation overwrites &2F00-&2FFF, so the
+; three-byte entry stub jumps here before that copy begins.
+
+CleanStartup:
+        SEI
+        LDX #&A2
+        TXS
+        CLD
+
+; The protected release copied a 152-byte opaque blob over &00-&97.  Direct
+; read-before-write tracing shows that the game itself needs only a small,
+; meaningful subset of that initial state before normal runtime initialisation:
+; the recursive composite-sprite walker scratch at &1E-&20 and the PRNG state
+; at &28.  Initialise those values explicitly and clear the rest.
+        LDA #&00
+        LDX #&97
+Startup_ClearZeroPage:
+        STA &00,X
+        DEX
+        BPL Startup_ClearZeroPage
+
+        LDA #&2A
+        STA SpriteTraversalCount
+        LDA #&C8
+        STA SpriteTraversalPtrLo
+        LDA #&D4
+        STA SpriteTraversalPtrHi
+        LDA #&30
+        STA RandomState
+
+; Select the cassette filing system before overwriting DFS low-memory workspace.
+        LDA #&8C
+        LDX #&03
+        JSR OSBYTE
+
+        LDA #&40
+        STA &0D00
+        LDY #&0F
+        LDA #&00
+Startup_ClearMosWorkspace:
+        STA &02A1,Y
+        DEY
+        BPL Startup_ClearMosWorkspace
+
+; -----------------------------------------------------------------------------
+; Install only the runtime ranges which survive in the final game memory map.
+; The source image itself is relocatable; all source addresses below are labels.
+; -----------------------------------------------------------------------------
+        LDA #<Runtime_0B00_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_0B00_Source
+        STA LoaderSourceHi
+        LDA #<QueueDescriptors
+        STA LoaderDestLo
+        LDA #>QueueDescriptors
+        STA LoaderDestHi
+        LDX #<(Runtime_0B00_SourceEnd-Runtime_0B00_Source)
+        LDA #>(Runtime_0B00_SourceEnd-Runtime_0B00_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+; The original protected loader copied this block through runtime &21EB, but
+; &1FFD-&21EB was immediately overwritten by the sprite block.  Copy only the
+; bytes that actually survive: &0D01-&1FFC.  The final four bytes come from the
+; start of Runtime_01A4_Source, exactly as in the released runtime image.
+        LDA #<Runtime_0D01_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_0D01_Source
+        STA LoaderSourceHi
+        LDA #<WaitForTickChange
+        STA LoaderDestLo
+        LDA #>WaitForTickChange
+        STA LoaderDestHi
+        LDX #<((Runtime_01A4_Source+4)-Runtime_0D01_Source)
+        LDA #>((Runtime_01A4_Source+4)-Runtime_0D01_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+        LDA #<Runtime_1FFD_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_1FFD_Source
+        STA LoaderSourceHi
+        LDA #<SpriteXOffsets
+        STA LoaderDestLo
+        LDA #>SpriteXOffsets
+        STA LoaderDestHi
+        LDX #<(Runtime_1FFD_SourceEnd-Runtime_1FFD_Source)
+        LDA #>(Runtime_1FFD_SourceEnd-Runtime_1FFD_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+        LDA #<Runtime_0507_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_0507_Source
+        STA LoaderSourceHi
+        LDA #<SoundStream
+        STA LoaderDestLo
+        LDA #>SoundStream
+        STA LoaderDestHi
+        LDX #<(Runtime_0507_SourceEnd-Runtime_0507_Source)
+        LDA #>(Runtime_0507_SourceEnd-Runtime_0507_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+        LDA #<Runtime_0880_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_0880_Source
+        STA LoaderSourceHi
+        LDA #<HighScores
+        STA LoaderDestLo
+        LDA #>HighScores
+        STA LoaderDestHi
+        LDX #<(Runtime_0880_SourceEnd-Runtime_0880_Source)
+        LDA #>(Runtime_0880_SourceEnd-Runtime_0880_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+        LDA #<Runtime_0A00_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_0A00_Source
+        STA LoaderSourceHi
+        LDA #<Mode1Masks
+        STA LoaderDestLo
+        LDA #>Mode1Masks
+        STA LoaderDestHi
+        LDX #<(Runtime_0A00_SourceEnd-Runtime_0A00_Source)
+        LDA #>(Runtime_0A00_SourceEnd-Runtime_0A00_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+; Runtime &01A4-&01FF comprises the 88-byte block below plus the first four
+; bytes of the title block. This is a genuine final-runtime overlap from the
+; original layout; it is retained without copying into MOS vectors.
+        LDA #<Runtime_01A4_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_01A4_Source
+        STA LoaderSourceHi
+        LDA #<&01A4
+        STA LoaderDestLo
+        LDA #>&01A4
+        STA LoaderDestHi
+        LDX #<((Runtime_0380_Source+4)-Runtime_01A4_Source)
+        LDA #>((Runtime_0380_Source+4)-Runtime_01A4_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+        LDA #<Runtime_0380_Source
+        STA LoaderSourceLo
+        LDA #>Runtime_0380_Source
+        STA LoaderSourceHi
+        LDA #<RuntimeGameEntry
+        STA LoaderDestLo
+        LDA #>RuntimeGameEntry
+        STA LoaderDestHi
+        LDX #<(Runtime_0380_SourceEnd-Runtime_0380_Source)
+        LDA #>(Runtime_0380_SourceEnd-Runtime_0380_Source)
+        STA LoaderLengthHi
+        JSR CopyRuntimeBlock
+
+; Initialise the four original sound/envelope OSWORD blocks.
+        LDX #<StartupOSWORD_Block0
+        LDY #>StartupOSWORD_Block0
+        LDA #&08
+        JSR OSWORDWrapper
+        LDX #<StartupOSWORD_Block1
+        LDY #>StartupOSWORD_Block1
+        LDA #&08
+        JSR OSWORDWrapper
+        LDX #<StartupOSWORD_Block2
+        LDY #>StartupOSWORD_Block2
+        LDA #&08
+        JSR OSWORDWrapper
+        LDX #<StartupOSWORD_Block3
+        LDY #>StartupOSWORD_Block3
+        LDA #&08
+        JSR OSWORDWrapper
+
+; Install the event handler, preserving the original KEYV before replacing it.
+        LDX #<TickIRQ
+        LDY #>TickIRQ
+        STY EVENTV+1
+        STX EVENTV
+        LDY KEYV+1
+        LDX KEYV
+        STY SavedKeyVHi
+        STX SavedKeyVLo
+
+        LDX #&04
+        LDA #&0E
+        JSR OSBYTEWrapper
+
+; Install the sound IRQ handler, preserving the previous IRQ1V.
+        LDY IRQ1V+1
+        LDX IRQ1V
+        STY SavedIRQ1VHi
+        STX SavedIRQ1VLo
+        LDX #<SoundIRQ
+        LDY #>SoundIRQ
+        STY IRQ1V+1
+        STX IRQ1V
+
+        LDX #&00
+        STX SoundEnabled
+        STX SoundIrqGate
+        STX Orientation
+        STX InputState
+        STX PauseGate
+        STX OSCallGate
+        DEX
+        STX GameState2F
+        STX InputMode
+        JSR ResetCountdownDivider
+
+; Build six zero-page pointers to the parallel sprite descriptor arrays.
+        LDX #<SpriteXOffsets
+        LDY #>SpriteXOffsets
+        STY &01
+        STX &00
+        LDX #<SpriteYOffsets
+        LDY #>SpriteYOffsets
+        STY &03
+        STX &02
+        LDX #<SpriteDefLo
+        LDY #>SpriteDefLo
+        STY &05
+        STX &04
+        LDX #<SpriteDefHi
+        LDY #>SpriteDefHi
+        STY &07
+        STX &06
+        LDX #<SpriteWidthFlags
+        LDY #>SpriteWidthFlags
+        STY &09
+        STX &08
+        LDX #<SpriteHeightCount
+        LDY #>SpriteHeightCount
+        STY &0B
+        STX &0A
+
+        LDA #&0A
+        STA SoundStreamCount
+        LDY #&CF
+        LDX #&20
+        LDA #&CA
+        JSR OSBYTEWrapper
+        LDY #&00
+        LDX #&08
+        LDA #&BE
+        JSR OSBYTEWrapper
+        LDA #&76
+        JSR OSBYTEWrapper
+        LDX #&28
+        LDA #&09
+        JSR OSBYTEWrapper
+        LDX #&14
+        LDA #&0A
+        JSR OSBYTEWrapper
+
+        LDA #&E0
+        STA USER_VIA_IER
+        LDA #&40
+        STA USER_VIA_ACR
+
+; Cache the five sound-stream segment offsets in &8B-&8F.
+        LDY #&00
+        LDX #&8B
+Startup_FindSoundStreams:
+        STY &00,X
+Startup_ScanSoundStream:
+        INY
+        LDA SoundStream-1,Y
+        BPL Startup_ScanSoundStream
+        INX
+        CPX #&8F
+        BCC Startup_FindSoundStreams
+        STY &00,X
+
+; Install KEYV and enable the required System VIA interrupt source.
+        LDX #<KeyVHandler
+        LDY #>KeyVHandler
+        STY KEYV+1
+        STX KEYV
+        LDA #&01
+        STA SYSTEM_VIA_IER
+        JMP RuntimeGameEntry
+
+; Startup-only block copier.  X = low byte of count, LoaderLengthHi = high byte.
+; Source/destination pointers live in &00-&03 only until the sprite-table
+; pointers above replace them.
+CopyRuntimeBlock:
+        LDY #&00
+CopyRuntimeBlock_Loop:
+        LDA (LoaderSourceLo),Y
+        STA (LoaderDestLo),Y
+        TXA
+        BNE CopyRuntimeBlock_NoBorrow
+        DEC LoaderLengthHi
+CopyRuntimeBlock_NoBorrow:
+        DEX
+        TXA
+        ORA LoaderLengthHi
+        BEQ CopyRuntimeBlock_Done
+        INY
+        BNE CopyRuntimeBlock_Loop
+        INC LoaderSourceHi
+        INC LoaderDestHi
+        JMP CopyRuntimeBlock_Loop
+CopyRuntimeBlock_Done:
+        RTS
+
+
 
 EndOfImage:
 ; Expected exact size: &2D4B bytes (11595). At the default origin &2F00 this
