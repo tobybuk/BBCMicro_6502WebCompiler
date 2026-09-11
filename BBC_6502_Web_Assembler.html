@@ -1131,7 +1131,7 @@ message:
                 OPCODES,
                 MODES,
                 UNDOCUMENTED,
-                version: '1.9.0'
+                version: '1.9.1'
             };
 
             if (typeof module !== 'undefined' && module.exports) {
@@ -1195,19 +1195,19 @@ OSWRCH = &FFEE
 ORG &1900
 
 start:
-        LDX #0
+            LDX #0
 .loop:
-        LDA message,X
-        BEQ done
-        JSR OSWRCH
-        INX
-        BNE .loop
+            LDA message,X
+            BEQ done
+            JSR OSWRCH
+            INX
+            BNE .loop
 .done:
-        RTS
+            RTS
 
 message:
-        EQUS "HELLO FROM 6502!"
-        EQUB 13,10,0
+            EQUS "HELLO FROM 6502!"
+            EQUB 13,10,0
 `;
 
             function setDirty(value) {
@@ -1851,41 +1851,41 @@ message:
 
                 if (result.success) {
                     html += `
-            <div class="summary">
-              <div class="key">Status</div><div class="good">BUILD OK</div>
-              <div class="key">Origin</div><div>${hex4(result.origin)}</div>
-              <div class="key">End</div><div>${hex4(result.end)}</div>
-              <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
-              <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
-              <div class="key">Segments</div><div>${result.segments.length}</div>
-              <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
-              <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
-              <div class="key">Boot loading</div><div>${(result.relocations || []).length ? `${result.relocations.length} @relocate range${result.relocations.length === 1 ? '' : 's'}` : (result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment')}</div>
-              <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
-              <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
-              ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
-            </div>`;
+                <div class="summary">
+                  <div class="key">Status</div><div class="good">BUILD OK</div>
+                  <div class="key">Origin</div><div>${hex4(result.origin)}</div>
+                  <div class="key">End</div><div>${hex4(result.end)}</div>
+                  <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
+                  <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
+                  <div class="key">Segments</div><div>${result.segments.length}</div>
+                  <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
+                  <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
+                  <div class="key">Boot loading</div><div>${(result.relocations || []).length ? `${result.relocations.length} @relocate range${result.relocations.length === 1 ? '' : 's'}` : (result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment')}</div>
+                  <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
+                  <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
+                  ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
+                </div>`;
                 } else {
                     html += `
-            <div class="summary">
-              <div class="key">Status</div><div class="bad">BUILD FAILED</div>
-              <div class="key">Errors</div><div>${result.errors.length}</div>
-            </div>`;
+                <div class="summary">
+                  <div class="key">Status</div><div class="bad">BUILD FAILED</div>
+                  <div class="key">Errors</div><div>${result.errors.length}</div>
+                </div>`;
                 }
 
                 for (const error of result.errors) {
                     html += `
-            <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
-              <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
-              ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
-            </div>`;
+                <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
+                  <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
+                  ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
+                </div>`;
                 }
 
                 for (const warning of result.warnings) {
                     html += `
-            <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
-              <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
-            </div>`;
+                <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
+                  <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
+                </div>`;
                 }
 
                 buildContent.innerHTML = html;
@@ -1914,11 +1914,11 @@ message:
                     const segmentName = `${stem(currentFile)}_${segment.start.toString(16).padStart(4, '0')}_${segment.end.toString(16).padStart(4, '0')}.bin`;
 
                     row.innerHTML = `
-            <td>${index + 1}</td>
-            <td class="addr">${hex4(segment.start)}</td>
-            <td class="addr">${hex4(segment.end)}</td>
-            <td>${segment.bytes.length.toLocaleString()}</td>
-            <td class="segmentActions"><button>Save</button></td>`;
+                <td>${index + 1}</td>
+                <td class="addr">${hex4(segment.start)}</td>
+                <td class="addr">${hex4(segment.end)}</td>
+                <td>${segment.bytes.length.toLocaleString()}</td>
+                <td class="segmentActions"><button>Save</button></td>`;
 
                     row.querySelector('button').onclick = () => {
                         downloadBlob(segment.bytes, segmentName);
@@ -1945,8 +1945,8 @@ message:
                         const row = document.createElement('tr');
                         row.className = 'symbolRow';
                         row.innerHTML = `
-              <td class="addr">${hex4(value & 0xFFFF)}</td>
-              <td>${escapeHtml(name)}</td>`;
+                  <td class="addr">${hex4(value & 0xFFFF)}</td>
+                  <td>${escapeHtml(name)}</td>`;
                         row.onclick = () => jumpToSymbol(name);
                         body.appendChild(row);
                     });
@@ -1988,6 +1988,8 @@ message:
 
             const MOVER_ADDRESS = 0x7AE0;
             const MOVER_END = 0x7BF4;
+            const HANDOFF_ADDRESS = MOVER_END + 1;
+            const HANDOFF_END = HANDOFF_ADDRESS + 3;
             const MOVER_SOURCE_OFFSET = 261;
             const MOVER_DESTINATION_OFFSET = 265;
             const MOVER_LENGTH_OFFSET = 269;
@@ -2017,6 +2019,17 @@ message:
                 0x4C, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                 0x00, 0x00, 0x00, 0x00, 0x00
             ]);
+
+            // Final handoff stub, placed in the four free bytes immediately after the
+            // mover and still below the MODE 7 screen at &7C00. The mover deliberately
+            // keeps IRQs disabled while copying. Only this final stub re-enables IRQs,
+            // once all direct/scatter relocation work is complete, then enters the game.
+            function makeHandoffBytes(entryPoint) {
+                return Uint8Array.from([
+                    0x58,                                           // CLI
+                    0x4C, entryPoint & 0xFF, (entryPoint >> 8) & 0xFF // JMP entryPoint
+                ]);
+            }
 
             // Optional boot-loader scatter stage. The ordinary mover first stages the
             // complete binary at its assembled Origin. With @relocate metadata, a small
@@ -2053,7 +2066,10 @@ message:
                     bytes.push(0x20, MOVER_ADDRESS & 0xFF, (MOVER_ADDRESS >> 8) & 0xFF);
                 }
 
-                bytes.push(0x4C, entryPoint & 0xFF, (entryPoint >> 8) & 0xFF);
+                // All relocation is now complete, but IRQs are still disabled because
+                // every mover invocation begins with SEI. Jump to the common handoff
+                // stub; it alone performs CLI before entering the assembled program.
+                bytes.push(0x4C, HANDOFF_ADDRESS & 0xFF, (HANDOFF_ADDRESS >> 8) & 0xFF);
                 return Uint8Array.from(bytes);
             }
 
@@ -2312,6 +2328,7 @@ message:
                 const T = BASIC_TOKENS;
                 const output = [0x0D];
                 const scatterBytes = makeScatterBytes(relocations, entryPoint);
+                const handoffBytes = makeHandoffBytes(entryPoint);
                 const hasScatter = scatterBytes.length > 0;
                 const reservedStart = hasScatter ? SCATTER_ADDRESS : MOVER_ADDRESS;
 
@@ -2339,7 +2356,8 @@ message:
 
                 const vars = [
                     ...asciiBytes('S%='), T.TO, 'P'.charCodeAt(0),
-                    ...asciiBytes(':M%=&7AE0')
+                    ...asciiBytes(':M%=&7AE0'),
+                    ...asciiBytes(`:H%=&${HANDOFF_ADDRESS.toString(16).toUpperCase()}`)
                 ];
                 if (hasScatter) vars.push(...asciiBytes(':R%=&7900'));
                 addLine(loaderLine, vars);
@@ -2361,7 +2379,14 @@ message:
                     loaderLine += 10;
                 }
 
-                const firstEntry = hasScatter ? SCATTER_ENTRY : entryPoint;
+                addLine(loaderLine, [
+                    T.FOR, ...asciiBytes(' I%=0 '), T.TO,
+                    ...asciiBytes(` ${handoffBytes.length - 1}:`),
+                    T.READ, ...asciiBytes(' B%:H%?I%=B%:'), T.NEXT
+                ]);
+                loaderLine += 10;
+
+                const firstEntry = hasScatter ? SCATTER_ENTRY : HANDOFF_ADDRESS;
                 addLine(loaderLine, asciiBytes(
                     `M%!${MOVER_SOURCE_OFFSET}=S%:` +
                     `M%!${MOVER_DESTINATION_OFFSET}=&${destination.toString(16).toUpperCase()}:` +
@@ -2375,8 +2400,8 @@ message:
                 let lineNumber = Math.ceil((loaderLine + 100) / 100) * 100;
                 const bytesPerDataLine = 18;
                 const allLoaderBytes = hasScatter
-                    ? Uint8Array.from([...MOVER_BYTES, ...scatterBytes])
-                    : MOVER_BYTES;
+                    ? Uint8Array.from([...MOVER_BYTES, ...scatterBytes, ...handoffBytes])
+                    : Uint8Array.from([...MOVER_BYTES, ...handoffBytes]);
 
                 for (let i = 0; i < allLoaderBytes.length; i += bytesPerDataLine) {
                     const chunk = Array.from(allLoaderBytes.slice(i, i + bytesPerDataLine));
@@ -2455,9 +2480,9 @@ message:
                     );
                 }
 
-                if (!(end < reservedStart || destination > MOVER_END)) {
+                if (!(end < reservedStart || destination > HANDOFF_END)) {
                     throw new Error(
-                        `The staged payload overlaps boot-loader workspace at ${hex4(reservedStart)}-${hex4(MOVER_END)}.`
+                        `The staged payload overlaps boot-loader workspace at ${hex4(reservedStart)}-${hex4(HANDOFF_END)}.`
                     );
                 }
 
@@ -2466,10 +2491,10 @@ message:
                     if (relocationEnd > 0x7FFF) {
                         throw new Error(`Boot destination ${hex4(relocation.destination)}-${hex4(relocationEnd)} exceeds BBC main RAM &7FFF.`);
                     }
-                    if (!(relocationEnd < reservedStart || relocation.destination > MOVER_END)) {
+                    if (!(relocationEnd < reservedStart || relocation.destination > HANDOFF_END)) {
                         throw new Error(
                             `Boot destination ${hex4(relocation.destination)}-${hex4(relocationEnd)} overlaps loader workspace ` +
-                            `${hex4(reservedStart)}-${hex4(MOVER_END)}.`
+                            `${hex4(reservedStart)}-${hex4(HANDOFF_END)}.`
                         );
                     }
                     if (!automaticSegments && entryPoint >= relocation.destination && entryPoint <= relocationEnd) {
@@ -2600,11 +2625,11 @@ message:
                     const reservedStart = (relocationCount || automaticSegmentCount) ? SCATTER_ADDRESS : MOVER_ADDRESS;
                     byId('bootWarning').textContent = automaticSegmentCount
                         ? `${automaticSegmentCount} emitted ORG segments will be packed and installed automatically; gaps are not written. ` +
-                        `Loader workspace: ${hex4(reservedStart)}-${hex4(MOVER_END)}.`
+                        `Loader workspace: ${hex4(reservedStart)}-${hex4(HANDOFF_END)}.`
                         : relocationCount
                             ? `${relocationCount} @relocate range${relocationCount === 1 ? '' : 's'} will be installed by the boot loader. ` +
-                            `Loader workspace: ${hex4(reservedStart)}-${hex4(MOVER_END)}.`
-                            : `The temporary mover occupies ${hex4(MOVER_ADDRESS)}-${hex4(MOVER_END)}. The compiled destination must not overlap it.`;
+                            `Loader workspace: ${hex4(reservedStart)}-${hex4(HANDOFF_END)}.`
+                            : `The temporary mover/handoff occupies ${hex4(MOVER_ADDRESS)}-${hex4(HANDOFF_END)}. The compiled destination must not overlap it.`;
                 }
 
                 byId('bootDialog').showModal();
