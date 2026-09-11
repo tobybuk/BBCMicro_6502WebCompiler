@@ -1,53 +1,40 @@
+; =============================================================================
 ; Frak! (BBC Micro, Aardvark Software, 1984)
-; GitLab runnable reconstruction baseline
+; Clean multi-ORG reconstruction baseline
+; =============================================================================
 ;
-; PURPOSE
-; -------
-; Clean, deprotected, relocatable reconstruction of Frak!.
+; SOURCE LAYOUT
+; -------------
+; This file now describes Frak's actual sparse runtime memory map directly.
+; There is no copy-protection decryptor, Frak-specific relocation routine,
+; packed-image relocation table, relocation metadata, or in-game code mover.
 ;
-; This source no longer contains the original Frak2 decryptor, Frak3 encrypted
-; payload, rolling zero-page seed blob, inline relocation records, or the
-; return-address-manipulating relocation routine.  Those belonged to the
-; original distribution/protection/loading scheme, not to the game engine.
+; Each genuine runtime range is assembled at its real BBC Micro address with
+; ORG.  The holes between those ranges are intentional and are NOT emitted to
+; the boot disk as zero-filled data.  BBC 6502 Web Assembler v1.9+ packs the
+; emitted segments for loading, stages them safely, then installs each segment
+; at its ORG address before entering start.
 ;
-; The file is still loaded as one relocatable packed image because BBC DFS must
-; not load directly over Frak's low-memory live map.  The startup code switches
-; to the cassette filing system, then copies only the eight ranges that really
-; survive in the game's runtime map.  Copy parameters are explicit source code,
-; not hidden inline records.
+; The final one-shot initialisation routine is placed at &3000, immediately above
+; the original &1FFD-&2FFF sprite/data area.  &3000 is screen RAM once Frak has
+; entered its display code, so this transient startup code may be overwritten
+; after it jumps to the genuine game entry at &0380.
 ;
-; RELOCATABLE SOURCE IMAGE
-; ------------------------
-; @default-origin &2F00
-;
-; There is deliberately NO ORG directive.  &2F00 is only the convenient
-; historical/default packed-image address.  Change the assembler Origin field
-; to move the load image; all packed-image references are labels.
-;
-; Frak's live low-memory layout is intentionally retained.  It contains genuine
-; design choices such as title/startup code at &0380 later being overwritten by
-; the parallel object arrays.  MOS vectors, hardware registers, zero page and
-; those runtime workspaces therefore remain fixed addresses.
-;
-; BBC 6502 Web Assembler
-; ----------------------
-; 1. Open this file.
-; 2. Assemble.
-; 3. Save boot disk / Run in jsbeeb.
-; 4. Entry point: start (selected automatically).
-; 5. Suggested DFS title/program name: FRAK / FRAK
-;
-; The generated BASIC loader first stages this packed image safely in RAM.
-; Frak's startup then selects *TAPE before installing the live low-memory image,
-; so DFS workspace cannot overwrite the game after startup.
-;
-; Original loader compatibility setting retained:
+; BBC BASIC loader setup (metadata only; emits no 6502 bytes):
 ; @basic *FX200,2
+; @basic *TAPE
 ;
-; Known runtime symbols (destinations after startup installation)
-; -----------------------------------------------------------------------------
-; These are RUNTIME addresses, not addresses of the packed source image.
-; They intentionally remain in Frak's original low-memory map.
+; Boot/run entry point: start
+;
+; IMPORTANT
+; ---------
+; "Save binary" still represents the whole sparse address span as a conventional
+; flat file and therefore fills holes.  "Save boot disk" / "Run in jsbeeb" do
+; not: the loader uses the assembler's emitted segment list and copies only the
+; actual Frak bytes to their ORG addresses.
+;
+; Fixed BBC MOS/hardware/runtime symbols
+; --------------------------------------
 OSWRCH                 = &FFEE
 OSWORD                 = &FFF1
 OSBYTE                  = &FFF4
@@ -227,30 +214,181 @@ TYPE_DAGGER_FLIP      = &26
 TYPE_BALLOON          = &27
 TYPE_TROGG_0          = &34
 
-; Startup-only scatter-loader scratch. These are overwritten with normal game
-; sprite descriptor pointers before RuntimeGameEntry is entered.
-LoaderSourceLo          = &00
-LoaderSourceHi          = &01
-LoaderDestLo            = &02
-LoaderDestHi            = &03
-LoaderLengthHi          = &06
+
+; =============================================================================
+; &01A4-&01FF - startup/sound structures and live renderer stub
+; =============================================================================
+ORG &01A4
+EQUB &13,&00,&01,&00,&00,&00,&FF,&00,&11,&00,&03,&00,&78,&00,&FF,&00
+        EQUB &12,&00,&02,&00,&00,&00,&FF,&00,&11,&00,&04,&00,&5A,&00,&FF,&00
+        EQUB &20,&FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&20
+        EQUB &FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&38,&A5,&19,&E9,&78,&85,&19,&A5
+        EQUB &1A,&E9,&02,&85,&1A,&18,&98,&65,&19,&8A,&65,&1A,&C9,&30,&B0,&D0
+        EQUB &A5,&1A,&69,&50,&85,&1A,&90,&C8
+; The protected packed image reused these four bytes as the first four bytes of
+; the title entry.  In the real sparse runtime map they also exist at &01FC-&01FF.
+        LDX #&01
+        LDY #&00
 
 
 
+; =============================================================================
+; &0380-&048F - title/game entry
+; =============================================================================
+ORG &0380
 ; -----------------------------------------------------------------------------
-; Boot/load entry.
-;
-; IMPORTANT: the web assembler prefers a symbol named "start" for its boot-disk
-; entry-point default.  &0380 is only the INTERNAL entry reached after startup
-; has installed the runtime image; it must not be used as the DFS/BASIC loader entry.
+; Runtime &0380: installed game/title entry.
 ; -----------------------------------------------------------------------------
-start:
-        JMP CleanStartup
+Title_RuntimeEntry:
+        LDX #&01
+        LDY #&00
+        JSR DisplayInit
+        CLI
+        JSR PrintInlineStream
 
-; -----------------------------------------------------------------------------
-; Packed runtime block installed at &0B00-&0CF2.
-; -----------------------------------------------------------------------------
-Runtime_0B00_Source:
+; Inline VDU stream: "The Cast", then Trogg vs. Scrubbly/Hooter/Poglet.
+        EQUB &11,&80,&1F,&10,&03,&54,&68,&65,&20,&43,&61,&73,&74,&1F,&10,&04    ; runtime &038B
+        EQUB &2D,&2D,&2D,&2D,&2D,&2D,&2D,&2D,&1F,&1A,&07,&54,&72,&6F,&67,&67    ; runtime &039B
+        EQUB &1F,&13,&09,&76,&73,&2E,&1F,&19,&0D,&53,&63,&72,&75,&62,&62,&6C    ; runtime &03AB
+        EQUB &79,&1F,&1A,&11,&48,&6F,&6F,&74,&65,&72,&1F,&1A,&15,&50,&6F,&67    ; runtime &03BB
+        EQUB &6C,&65,&74,&EA    ; runtime &03CB
+
+; Draw the five cast sprites alongside the text above.
+Title_DrawCast:
+        LDA #&22
+        LDX #&22
+        LDY #&EA
+        JSR DrawSpriteAt
+        LDA #&35
+        LDX #&16
+        LDY #&B7
+        JSR DrawSpriteAt
+        LDA #TYPE_SCRUBBLY
+        LDX #&15
+        LDY #&85
+        JSR DrawSpriteAt
+        LDA #TYPE_HOOTER
+        LDX #&15
+        LDY #&6B
+        JSR DrawSpriteAt
+        LDA #TYPE_POGLET
+        LDX #&16
+        LDY #&58
+        JSR DrawSpriteAt
+        JSR PrintInlineStream
+
+; Inline VDU/credits stream: design/programming credits and copyright.
+        EQUB &1C,&00,&1F,&27,&19,&11,&82,&0C,&1F,&05,&01,&47,&61,&6D,&65,&20    ; runtime &03FF
+        EQUB &63,&6F,&6E,&63,&65,&70,&74,&73,&20,&62,&79,&20,&44,&43,&45,&2C    ; runtime &040F
+        EQUB &4F,&4D,&50,&20,&26,&20,&42,&4F,&46,&1F,&01,&03,&50,&72,&6F,&67    ; runtime &041F
+        EQUB &72,&61,&6D,&6D,&69,&6E,&67,&20,&62,&65,&79,&6F,&6E,&64,&20,&62    ; runtime &042F
+        EQUB &65,&6C,&69,&65,&66,&20,&62,&79,&20,&2A,&4F,&72,&6C,&61,&6E,&64    ; runtime &043F
+        EQUB &6F,&2A,&1F,&07,&05,&28,&43,&29,&20,&41,&61,&72,&64,&76,&61,&72    ; runtime &044F
+        EQUB &6B,&20,&53,&6F,&66,&74,&77,&61,&72,&65,&20,&31,&39,&38,&34,&19    ; runtime &045F
+        EQUB &04,&00,&00,&E0,&00,&19,&01,&00,&05,&00,&00,&EA    ; runtime &046F
+
+Title_EnterAttractLoop:
+        JSR TitleInitEightRecords
+        JMP GameStartCheck
+
+; Initialise eight records via the helper at runtime &1AC7.  &7E retains the
+; caller's hardware stack pointer for the title/start machinery.
+Title_InitEightRecordsSource:
+        TSX
+        STX &7E
+        LDX #&07
+Title_InitEightLoop:
+        LDA #&00
+        JSR Routine1AC7
+        DEX
+        BNE Title_InitEightLoop
+        CLC
+        RTS
+
+
+; =============================================================================
+; &0507-&07FE - sound streams and level data
+; =============================================================================
+ORG &0507
+EQUB &21,&21,&29,&31,&36,&22,&29,&36,&21,&20,&29,&36,&22,&29,&35,&3D
+        EQUB &41,&45,&4A,&36,&3D,&4A,&28,&28,&2C,&30,&34,&4A,&35,&34,&3D,&48
+        EQUB &48,&45,&49,&4D,&52,&3D,&3C,&45,&52,&30,&34,&30,&38,&3C,&52,&3D
+        EQUB &3C,&45,&50,&54,&58,&41,&34,&3D,&36,&34,&16,&14,&1A,&18,&1E,&1C
+        EQUB &20,&1C,&20,&25,&2C,&A5,&0F,&3D,&0D,&1B,&49,&19,&0D,&3D,&0D,&19
+        EQUB &49,&19,&3D,&0D,&2B,&51,&29,&09,&59,&09,&0D,&3D,&29,&21,&0D,&19
+        EQUB &21,&15,&6D,&0F,&6D,&0D,&1B,&55,&19,&0D,&51,&0D,&19,&51,&19,&49
+        EQUB &0D,&2B,&51,&29,&09,&59,&09,&0D,&3D,&29,&23,&1B,&15,&D9,&23,&0D
+        EQUB &11,&17,&31,&2D,&29,&11,&0D,&1D,&21,&0D,&15,&1D,&23,&0D,&11,&17
+        EQUB &31,&2D,&29,&21,&1D,&15,&0D,&15,&19,&1D,&23,&0D,&15,&21,&29,&2D
+        EQUB &31,&37,&31,&35,&3B,&35,&39,&23,&1D,&19,&15,&33,&2D,&29,&11,&0D
+        EQUB &1D,&21,&3C,&3D,&44,&BD,&5D,&48,&51,&48,&3D,&AF,&44,&45,&52,&50
+        EQUB &54,&59,&50,&46,&41,&3C,&44,&3C,&51,&40,&45,&37,&E7,&43,&54,&08
+        EQUB &0A,&30,&00,&4D,&38,&33,&BC,&7B,&7E,&4C,&30,&69,&30,&33,&70,&17
+        EQUB &BC,&A7,&BC,&00,&4B,&18,&A8,&2E,&7B,&2F,&5B,&BB,&09,&3D,&BC,&2A
+        EQUB &2A,&2F,&14,&7D,&A8,&7D,&69,&7D,&4C,&7D,&00,&46,&F8,&08,&2F,&28
+        EQUB &7C,&28,&2F,&2D,&76,&32,&6F,&37,&66,&3C,&5D,&4B,&7C,&4F,&91,&53
+        EQUB &A6,&5F,&A6,&63,&91,&7A,&7D,&80,&8A,&86,&98,&8D,&A6,&94,&B3,&80
+        EQUB &77,&86,&6C,&8D,&60,&94,&53,&94,&2E,&A6,&BB,&A6,&7D,&A6,&2E,&3C
+        EQUB &7C,&5F,&89,&4F,&74,&53,&89,&63,&74,&67,&7C,&41,&95,&BB,&3B,&2F
+        EQUB &49,&2F,&57,&BB,&66,&2F,&77,&2F,&77,&BB,&57,&9E,&0C,&09,&7C,&15
+        EQUB &09,&BB,&28,&BB,&00,&4C,&40,&3E,&42,&51,&76,&55,&8B,&59,&A0,&60
+        EQUB &8B,&96,&38,&64,&76,&5C,&A0,&29,&A8,&54,&0A,&92,&3E,&92,&29,&92
+        EQUB &7B,&92,&0A,&A8,&84,&2B,&68,&38,&0A,&37,&29,&37,&4D,&37,&7B,&38
+        EQUB &00,&FF,&4A,&54,&08,&07,&38,&00,&4D,&41,&6F,&2F,&64,&89,&16,&90
+        EQUB &7D,&2A,&42,&57,&2F,&28,&48,&E6,&2A,&CD,&00,&4B,&20,&05,&90,&34
+        EQUB &42,&87,&17,&86,&94,&09,&5F,&D5,&12,&04,&BC,&21,&A2,&00,&46,&30
+        EQUB &00,&BB,&50,&71,&34,&89,&41,&45,&6E,&60,&7A,&17,&09,&1A,&16,&0A
+        EQUB &00,&37,&0B,&43,&D4,&5C,&15,&69,&26,&BB,&2F,&58,&47,&1B,&72,&D7
+        EQUB &79,&AF,&75,&9A,&7A,&79,&03,&90,&2B,&71,&69,&17,&AD,&22,&79,&12
+        EQUB &90,&27,&92,&19,&BB,&35,&B5,&41,&AE,&4D,&A8,&39,&1B,&59,&1C,&5C
+        EQUB &28,&5F,&34,&62,&40,&6C,&79,&6C,&A1,&84,&94,&37,&28,&33,&42,&35
+        EQUB &35,&19,&CB,&16,&D7,&1F,&A1,&00,&4C,&68,&15,&44,&50,&AF,&4A,&20
+        EQUB &35,&64,&29,&96,&50,&4C,&6E,&3B,&79,&B2,&80,&8A,&6E,&7C,&0E,&96
+        EQUB &23,&7C,&7D,&3B,&21,&16,&99,&42,&4B,&2F,&1A,&1C,&2B,&0A,&64,&7D
+        EQUB &0B,&72,&67,&00,&FF,&47,&54,&08,&06,&3A,&00,&4D,&50,&40,&94,&0F
+        EQUB &B0,&1F,&91,&2E,&4A,&99,&1F,&B0,&90,&21,&4A,&4F,&1F,&85,&1F,&7D
+        EQUB &C8,&00,&4B,&20,&0D,&90,&57,&6F,&8A,&C2,&B6,&8F,&21,&18,&6D,&13
+        EQUB &6D,&5A,&D1,&24,&16,&22,&19,&B0,&7C,&8C,&45,&28,&8F,&1F,&00,&46
+        EQUB &A0,&06,&AF,&0F,&AF,&18,&AF,&1F,&90,&16,&90,&0C,&90,&2E,&49,&3B
+        EQUB &49,&45,&52,&3B,&5C,&85,&1E,&8E,&1E,&99,&1E,&99,&71,&A2,&71,&98
+        EQUB &80,&A4,&8F,&97,&8F,&7D,&C7,&A2,&1E,&59,&6E,&5A,&7D,&41,&28,&8D
+        EQUB &1A,&33,&1C,&3F,&1E,&49,&41,&27,&57,&D0,&6E,&B9,&6E,&C7,&9C,&AF
+        EQUB &32,&56,&6F,&A2,&62,&72,&1E,&45,&66,&7B,&8B,&B0,&8F,&1B,&4F,&1E
+        EQUB &22,&DA,&24,&15,&14,&02,&39,&3C,&93,&1E,&4F,&A7,&3C,&DA,&82,&DF
+        EQUB &00,&4C,&30,&22,&AB,&4F,&AB,&2E,&1A,&72,&2B,&95,&B0,&A9,&33,&19
+        EQUB &57,&32,&81,&4E,&3C,&9D,&12,&2C,&8F,&82,&94,&2B,&06,&56,&41,&3A
+        EQUB &6E,&60,&9D,&56,&9F,&56,&00,&FF
+; =============================================================================
+; &0880-&08A3 - high-score table
+; =============================================================================
+ORG &0880
+EQUB &76,&26,&6F,&00,&01,&00,&4E,&49,&4B,&00,&01,&00,&42,&4F,&46,&00
+        EQUB &01,&00,&43,&41,&50,&00,&01,&00,&50,&41,&4D,&00,&01,&00,&44,&43
+        EQUB &45,&00,&01,&00
+; =============================================================================
+; &0A00-&0AFF - MODE 1 lookup masks
+; =============================================================================
+ORG &0A00
+EQUB &FF,&EE,&DD,&CC,&BB,&AA,&99,&88,&77,&66,&55,&44,&33,&22,&11,&00
+        EQUB &EE,&EE,&CC,&CC,&AA,&AA,&88,&88,&66,&66,&44,&44,&22,&22,&00,&00
+        EQUB &DD,&CC,&DD,&CC,&99,&88,&99,&88,&55,&44,&55,&44,&11,&00,&11,&00
+        EQUB &CC,&CC,&CC,&CC,&88,&88,&88,&88,&44,&44,&44,&44,&00,&00,&00,&00
+        EQUB &BB,&AA,&99,&88,&BB,&AA,&99,&88,&33,&22,&11,&00,&33,&22,&11,&00
+        EQUB &AA,&AA,&88,&88,&AA,&AA,&88,&88,&22,&22,&00,&00,&22,&22,&00,&00
+        EQUB &99,&88,&99,&88,&99,&88,&99,&88,&11,&00,&11,&00,&11,&00,&11,&00
+        EQUB &88,&88,&88,&88,&88,&88,&88,&88,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &77,&66,&55,&44,&33,&22,&11,&00,&77,&66,&55,&44,&33,&22,&11,&00
+        EQUB &66,&66,&44,&44,&22,&22,&00,&00,&66,&66,&44,&44,&22,&22,&00,&00
+        EQUB &55,&44,&55,&44,&11,&00,&11,&00,&55,&44,&55,&44,&11,&00,&11,&00
+        EQUB &44,&44,&44,&44,&00,&00,&00,&00,&44,&44,&44,&44,&00,&00,&00,&00
+        EQUB &33,&22,&11,&00,&33,&22,&11,&00,&33,&22,&11,&00,&33,&22,&11,&00
+        EQUB &22,&22,&00,&00,&22,&22,&00,&00,&22,&22,&00,&00,&22,&22,&00,&00
+        EQUB &11,&00,&11,&00,&11,&00,&11,&00,&11,&00,&11,&00,&11,&00,&11,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+; =============================================================================
+; &0B00-&0CF2 - queue descriptors and core game routines
+; =============================================================================
+ORG &0B00
 ; Queue descriptors.  Each queue's final byte is the next queue's first slot,
 ; giving seven overlapping records: start, collision flags, ASCII tag, next.
         EQUB 0,&00,"T"
@@ -535,16 +673,14 @@ Core_ExitTimerKeys:
         LDA #&8F
         JMP Inkey
 
-; Runtime aliases for the decompiled packed block above.  These constants are
-; deliberately low-memory runtime addresses; the Core_* labels are high packed
-; source positions and therefore must not be used as absolute JSR/JMP operands.
+; Runtime alias retained for the overlapping compact entry sequence.
 Core_NewGameRuntime = &0B5A
 
-Runtime_0B00_SourceEnd:
-; -----------------------------------------------------------------------------
-; Packed main-engine source. Startup installs only the surviving &0D01-&1FFC bytes.
-; -----------------------------------------------------------------------------
-Runtime_0D01_Source:
+
+; =============================================================================
+; &0D01-&1FFC - main engine
+; =============================================================================
+ORG &0D01
 ; Wait for the 50 Hz/event tick counter to change.
 Main_WaitForTickChange:
         LDA TickCounter
@@ -757,7 +893,7 @@ Runtime_0D01_DecompiledEnd:
 ; This is a code/data-aware disassembly generated from the Stage 2 reachability
 ; map.  Reachable instructions are assembly; bytes which are not proven code
 ; remain EQUB data.  Absolute operands deliberately name the fixed LOW runtime
-; map, while relative branches use the high packed-source labels below.
+; map, while relative branches use local source labels below.
 ; -----------------------------------------------------------------------------
 
 ; -----------------------------------------------------------------------------
@@ -3229,452 +3365,284 @@ L1FF0:
         STX     &15                                  ; &1FF4: 86 15
         STY     TYPE_GEM                             ; &1FF6: 84 16
         RTS                                          ; &1FF8: 60
-Runtime_01A4_Source:
-        EQUB &13,&00,&01,&00,&00,&00,&FF,&00,&11,&00,&03,&00,&78,&00,&FF,&00    ; &44EB
-        EQUB &12,&00,&02,&00,&00,&00,&FF,&00,&11,&00,&04,&00,&5A,&00,&FF,&00    ; &44FB
-        EQUB &20,&FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&20    ; &450B
-        EQUB &FF,&FF,&20,&FF,&FF,&20,&FF,&FF,&38,&A5,&19,&E9,&78,&85,&19,&A5    ; &451B
-        EQUB &1A,&E9,&02,&85,&1A,&18,&98,&65,&19,&8A,&65,&1A,&C9,&30,&B0,&D0    ; &452B
-        EQUB &A5,&1A,&69,&50,&85,&1A,&90,&C8    ; &453B
-Runtime_01A4_SourceEnd:
-; -----------------------------------------------------------------------------
-; Title/game entry block installed at runtime &0380-&048F.
-; -----------------------------------------------------------------------------
-Runtime_0380_Source:
-; -----------------------------------------------------------------------------
-; Runtime &0380: installed game/title entry.
-; -----------------------------------------------------------------------------
-Title_RuntimeEntry:
-        LDX #&01
-        LDY #&00
-        JSR DisplayInit
-        CLI
-        JSR PrintInlineStream
 
-; Inline VDU stream: "The Cast", then Trogg vs. Scrubbly/Hooter/Poglet.
-        EQUB &11,&80,&1F,&10,&03,&54,&68,&65,&20,&43,&61,&73,&74,&1F,&10,&04    ; runtime &038B
-        EQUB &2D,&2D,&2D,&2D,&2D,&2D,&2D,&2D,&1F,&1A,&07,&54,&72,&6F,&67,&67    ; runtime &039B
-        EQUB &1F,&13,&09,&76,&73,&2E,&1F,&19,&0D,&53,&63,&72,&75,&62,&62,&6C    ; runtime &03AB
-        EQUB &79,&1F,&1A,&11,&48,&6F,&6F,&74,&65,&72,&1F,&1A,&15,&50,&6F,&67    ; runtime &03BB
-        EQUB &6C,&65,&74,&EA    ; runtime &03CB
-
-; Draw the five cast sprites alongside the text above.
-Title_DrawCast:
-        LDA #&22
-        LDX #&22
-        LDY #&EA
-        JSR DrawSpriteAt
-        LDA #&35
-        LDX #&16
-        LDY #&B7
-        JSR DrawSpriteAt
-        LDA #TYPE_SCRUBBLY
-        LDX #&15
-        LDY #&85
-        JSR DrawSpriteAt
-        LDA #TYPE_HOOTER
-        LDX #&15
-        LDY #&6B
-        JSR DrawSpriteAt
-        LDA #TYPE_POGLET
-        LDX #&16
-        LDY #&58
-        JSR DrawSpriteAt
-        JSR PrintInlineStream
-
-; Inline VDU/credits stream: design/programming credits and copyright.
-        EQUB &1C,&00,&1F,&27,&19,&11,&82,&0C,&1F,&05,&01,&47,&61,&6D,&65,&20    ; runtime &03FF
-        EQUB &63,&6F,&6E,&63,&65,&70,&74,&73,&20,&62,&79,&20,&44,&43,&45,&2C    ; runtime &040F
-        EQUB &4F,&4D,&50,&20,&26,&20,&42,&4F,&46,&1F,&01,&03,&50,&72,&6F,&67    ; runtime &041F
-        EQUB &72,&61,&6D,&6D,&69,&6E,&67,&20,&62,&65,&79,&6F,&6E,&64,&20,&62    ; runtime &042F
-        EQUB &65,&6C,&69,&65,&66,&20,&62,&79,&20,&2A,&4F,&72,&6C,&61,&6E,&64    ; runtime &043F
-        EQUB &6F,&2A,&1F,&07,&05,&28,&43,&29,&20,&41,&61,&72,&64,&76,&61,&72    ; runtime &044F
-        EQUB &6B,&20,&53,&6F,&66,&74,&77,&61,&72,&65,&20,&31,&39,&38,&34,&19    ; runtime &045F
-        EQUB &04,&00,&00,&E0,&00,&19,&01,&00,&05,&00,&00,&EA    ; runtime &046F
-
-Title_EnterAttractLoop:
-        JSR TitleInitEightRecords
-        JMP GameStartCheck
-
-; Initialise eight records via the helper at runtime &1AC7.  &7E retains the
-; caller's hardware stack pointer for the title/start machinery.
-Title_InitEightRecordsSource:
-        TSX
-        STX &7E
-        LDX #&07
-Title_InitEightLoop:
-        LDA #&00
-        JSR Routine1AC7
-        DEX
-        BNE Title_InitEightLoop
-        CLC
-        RTS
-Runtime_0380_SourceEnd:
+; Four original bytes at &1FF9-&1FFC.  The protected packed representation shared
+; them with the beginning of the &01A4 block; a true multi-ORG source emits the
+; bytes independently at both runtime addresses.
+        EQUB &13,&00,&01,&00
 
 
-; Four original 14-byte OSWORD parameter/control blocks used during startup.
-StartupOSWORD_Block0:
-        EQUB &01,&01,&00,&00,&00,&01,&01,&01,&64,&F6,&FE,&FC,&64,&3C    ; original &4653
-StartupOSWORD_Block1:
-        EQUB &02,&01,&00,&00,&00,&01,&01,&01,&64,&9C,&9C,&9C,&64,&00    ; original &4661
-StartupOSWORD_Block2:
-        EQUB &03,&82,&00,&02,&FD,&02,&06,&04,&3C,&07,&F2,&F2,&3C,&6E    ; original &466F
-StartupOSWORD_Block3:
-        EQUB &04,&82,&00,&FC,&02,&03,&03,&28,&28,&FC,&FB,&FB,&78,&74    ; original &467D
-; -----------------------------------------------------------------------------
-; Packed sprite system/data installed at runtime &1FFD-&2FFF.
-; -----------------------------------------------------------------------------
-Runtime_1FFD_Source:
-        EQUB &00,&01,&01,&01,&00,&01,&02,&01,&01,&FF,&00,&FF,&01,&00,&00,&00    ; &482C
-        EQUB &00,&00,&FD,&FE,&FE,&00,&FF,&FE,&00,&00,&00,&00,&00,&FF,&FD,&00    ; &483C
-        EQUB &00,&00,&00,&00,&FF,&FF,&FF,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &484C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &485C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &486C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &487C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&01,&02,&00,&00,&00,&00,&F3,&00,&00    ; &488C
-        EQUB &00,&F3,&00,&00,&F5,&F5,&F5,&F2,&F5,&00,&EF,&00,&00,&00,&00,&00    ; &489C
-        EQUB &00,&FB,&FB,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &48AC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &48BC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &48CC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&28,&5C,&93,&CA,&FC,&3B,&72,&A3    ; &48DC
-        EQUB &E5,&27,&F7,&C7,&84,&25,&31,&25,&31,&3D,&73,&E8,&B1,&7D,&A7,&BF    ; &48EC
-        EQUB &FB,&07,&13,&36,&63,&87,&FA,&C6,&D2,&EE,&0A,&00,&2D,&56,&56,&77    ; &48FC
-        EQUB &FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&95,&9B,&A1,&A7    ; &490C
-        EQUB &AD,&B3,&B9,&BF,&C5,&CB,&D1,&D7,&DD,&E3,&E9,&EF,&F5,&0A,&25,&40    ; &491C
-        EQUB &67,&73,&7C,&85,&91,&A0,&B2,&B8,&BE,&C4,&CA,&D0,&D6,&DC,&E2,&E8    ; &492C
-        EQUB &EE,&F4,&FA,&00,&02,&02,&02,&02,&02,&03,&03,&03,&03,&04,&04,&05    ; &493C
-        EQUB &06,&07,&07,&07,&07,&07,&07,&08,&09,&0A,&0A,&0A,&0A,&0B,&0B,&0B    ; &494C
-        EQUB &0B,&0B,&0B,&0C,&0C,&0C,&0D,&0E,&0E,&0E,&0E,&0E,&FF,&FF,&FF,&FF    ; &495C
-        EQUB &FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&0E,&0E,&0E,&0E,&0E,&0E,&0E,&0E    ; &496C
-        EQUB &0E,&0E,&0E,&0E,&0E,&0E,&0E,&0E,&0E,&0F,&0F,&0F,&0F,&0F,&0F,&0F    ; &497C
-        EQUB &0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&10    ; &498C
-        EQUB &02,&04,&04,&04,&05,&04,&04,&05,&05,&07,&07,&07,&06,&02,&02,&82    ; &499C
-        EQUB &82,&04,&09,&05,&05,&03,&03,&06,&01,&01,&03,&03,&03,&05,&06,&02    ; &49AC
-        EQUB &02,&02,&0D,&03,&03,&03,&83,&03,&02,&04,&06,&08,&0A,&0C,&0E,&10    ; &49BC
-        EQUB &12,&14,&16,&18,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &49CC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &49DC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&1A,&0B,&0B,&0B    ; &49EC
-        EQUB &0B,&0B,&0B,&0B,&0B,&1A,&1A,&18,&17,&06,&06,&06,&06,&0E,&2A,&22    ; &49FC
-        EQUB &22,&0E,&09,&0A,&0C,&0C,&0C,&0F,&0C,&17,&22,&06,&0E,&0E,&13,&0F    ; &4A0C
-        EQUB &0E,&0B,&0B,&0A,&01,&01,&01,&01,&01,&01,&01,&01,&01,&01,&01,&01    ; &4A1C
-        EQUB &02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02    ; &4A2C
-        EQUB &07,&09,&09,&0D,&04,&03,&03,&04,&05,&06,&02,&02,&02,&02,&02,&02    ; &4A3C
-        EQUB &02,&02,&02,&02,&02,&02,&02,&01,&F9,&F9,&F9,&F9,&F9,&F9,&F8,&74    ; &4A4C
-        EQUB &74,&F8,&F9,&F9,&F9,&F9,&F8,&74,&74,&74,&74,&74,&F8,&F9,&F9,&F9    ; &4A5C
-        EQUB &F9,&F9,&00,&00,&00,&00,&00,&00,&88,&88,&88,&88,&00,&00,&00,&00    ; &4A6C
-        EQUB &88,&88,&88,&88,&88,&88,&88,&00,&00,&00,&00,&00,&11,&11,&00,&00    ; &4A7C
-        EQUB &00,&00,&11,&11,&33,&23,&33,&FF,&8F,&CF,&67,&DF,&8F,&9F,&1F,&3F    ; &4A8C
-        EQUB &0F,&FF,&FF,&3F,&1F,&1F,&0F,&8F,&8F,&CF,&CF,&8F,&FF,&00,&00,&00    ; &4A9C
-        EQUB &88,&88,&88,&88,&BB,&DF,&1F,&FF,&00,&00,&00,&00,&00,&00,&00,&00    ; &4AAC
-        EQUB &00,&00,&00,&11,&00,&00,&11,&33,&67,&47,&47,&67,&33,&00,&FF,&8F    ; &4ABC
-        EQUB &8F,&8F,&8F,&4F,&4F,&CF,&4F,&8F,&FF,&FF,&2E,&2E,&2E,&6E,&4C,&CC    ; &4ACC
-        EQUB &FF,&DF,&1F,&FF,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4ADC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&00,&00,&11,&33,&77    ; &4AEC
-        EQUB &47,&47,&67,&23,&33,&FF,&8F,&8F,&8F,&0F,&1F,&3F,&7F,&7F,&1F,&FF    ; &4AFC
-        EQUB &FF,&2E,&2E,&7F,&9F,&1F,&1F,&9F,&8F,&CF,&77,&00,&00,&00,&00,&00    ; &4B0C
-        EQUB &00,&EE,&AE,&2E,&EE,&CC,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4B1C
-        EQUB &00,&11,&11,&11,&11,&00,&00,&11,&00,&11,&11,&77,&CF,&0F,&1F,&9F    ; &4B2C
-        EQUB &8F,&FF,&FF,&8F,&8F,&0F,&1F,&2F,&6F,&EF,&EF,&CF,&FF,&FF,&2E,&6E    ; &4B3C
-        EQUB &AE,&2E,&2E,&6E,&7F,&6F,&0F,&FF,&00,&00,&00,&00,&00,&00,&00,&88    ; &4B4C
-        EQUB &88,&88,&88,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&11    ; &4B5C
-        EQUB &11,&11,&DD,&BF,&8F,&FF,&FF,&CF,&8F,&8F,&0F,&1F,&1F,&3F,&3F,&1F    ; &4B6C
-        EQUB &FF,&FF,&1F,&3F,&6E,&BF,&1F,&9F,&8F,&CF,&0F,&FF,&CC,&88,&00,&00    ; &4B7C
-        EQUB &00,&00,&88,&88,&CC,&4C,&CC,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4B8C
-        EQUB &00,&00,&FF,&47,&47,&47,&67,&23,&33,&FF,&BF,&8F,&FF,&FF,&1F,&1F    ; &4B9C
-        EQUB &1F,&1F,&2F,&2F,&3F,&2F,&1F,&FF,&88,&00,&00,&88,&CC,&6E,&2E,&2E    ; &4BAC
-        EQUB &6E,&CC,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4BBC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&77,&57,&47,&77,&33,&FF,&47    ; &4BCC
-        EQUB &47,&EF,&9F,&8F,&8F,&9F,&1F,&3F,&EE,&FF,&1F,&1F,&1F,&0F,&8F,&CF    ; &4BDC
-        EQUB &EF,&EF,&8F,&FF,&88,&00,&00,&88,&CC,&EE,&2E,&2E,&6E,&4C,&CC,&00    ; &4BEC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&33,&23,&67,&47,&CF,&0F    ; &4BFC
-        EQUB &3F,&6E,&7F,&3F,&FF,&00,&00,&00,&00,&00,&00,&00,&11,&11,&11,&11    ; &4C0C
-        EQUB &FF,&47,&67,&57,&47,&47,&67,&EF,&6F,&0F,&FF,&FF,&1F,&1F,&0F,&8F    ; &4C1C
-        EQUB &4F,&6F,&7F,&7F,&3F,&FF,&88,&00,&88,&88,&EE,&3F,&0F,&8F,&9F,&1F    ; &4C2C
-        EQUB &FF,&00,&00,&00,&00,&00,&88,&88,&88,&88,&00,&00,&33,&23,&67,&47    ; &4C3C
-        EQUB &CF,&0F,&3F,&6E,&7F,&3F,&FF,&00,&00,&00,&33,&23,&33,&00,&00,&00    ; &4C4C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4C5C
-        EQUB &00,&00,&11,&23,&EF,&0F,&FF,&33,&11,&00,&00,&00,&00,&00,&00,&00    ; &4C6C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&FF,&FF,&D3,&E9,&E9    ; &4C7C
-        EQUB &0F,&DF,&3F,&FF,&77,&67,&67,&EF,&FB,&FB,&FF,&CF,&CF,&FF,&FC,&76    ; &4C8C
-        EQUB &33,&11,&00,&00,&00,&88,&EE,&FF,&FF,&FF,&FF,&BF,&8F,&0F,&2F,&2F    ; &4C9C
-        EQUB &3F,&1F,&8F,&FF,&FF,&6F,&0F,&FF,&F0,&F0,&F0,&F8,&00,&00,&00,&00    ; &4CAC
-        EQUB &00,&88,&CC,&FF,&FF,&FF,&3F,&1F,&0F,&0F,&0F,&8F,&CF,&FF,&CF,&0F    ; &4CBC
-        EQUB &0F,&FF,&F0,&F0,&F0,&F1,&00,&00,&00,&00,&00,&00,&00,&00,&88,&00    ; &4CCC
-        EQUB &88,&EE,&FF,&DF,&6F,&6F,&3F,&1F,&1F,&1F,&3F,&FF,&F1,&F3,&F6,&FF    ; &4CDC
-        EQUB &77,&77,&33,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&88,&88,&88    ; &4CEC
-        EQUB &CC,&4C,&4C,&4C,&6E,&3F,&1F,&DF,&F3,&FD,&FF,&FF,&EE,&11,&33,&67    ; &4CFC
-        EQUB &DF,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&00,&4C,&F4,&FF    ; &4D0C
-        EQUB &85,&20,&A9,&80,&24,&20,&D0,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4D1C
-        EQUB &00,&11,&11,&11,&33,&23,&23,&23,&67,&CF,&8F,&BF,&FC,&FB,&FF,&FF    ; &4D2C
-        EQUB &77,&00,&00,&00,&00,&00,&11,&00,&11,&77,&CF,&8F,&0F,&1F,&1F,&3F    ; &4D3C
-        EQUB &2F,&7F,&7C,&FC,&7C,&FE,&F7,&FF,&EE,&EE,&CC,&00,&00,&11,&33,&FF    ; &4D4C
-        EQUB &FF,&FF,&DF,&0F,&0F,&0F,&3F,&EF,&0F,&0F,&1F,&FF,&F0,&F0,&F0,&F0    ; &4D5C
-        EQUB &F0,&F8,&00,&00,&00,&11,&77,&FF,&FF,&FF,&FF,&DF,&E7,&FB,&F9,&FD    ; &4D6C
-        EQUB &FD,&FC,&FC,&F8,&F8,&F0,&F0,&F0,&F0,&F0,&F0,&F1,&00,&00,&00,&FF    ; &4D7C
-        EQUB &FF,&BC,&79,&79,&0F,&BF,&CF,&7F,&2E,&3F,&9F,&9F,&DF,&D7,&F7,&F3    ; &4D8C
-        EQUB &F1,&F1,&F1,&F3,&E6,&CC,&00,&00,&00,&00,&88,&4C,&7F,&0F,&FF,&CC    ; &4D9C
-        EQUB &88,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4DAC
-        EQUB &00,&00,&00,&00,&00,&00,&CC,&4C,&CC,&00,&00,&00,&00,&00,&00,&00    ; &4DBC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&67    ; &4DCC
-        EQUB &DF,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&00,&4C,&F4,&FF    ; &4DDC
-        EQUB &85,&20,&A9,&80,&24,&20,&D0,&00,&00,&00,&77,&47,&77,&00,&00,&00    ; &4DEC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&11,&11,&11,&77,&47,&77,&00,&11    ; &4DFC
-        EQUB &33,&56,&DF,&1F,&EF,&77,&23,&11,&00,&11,&11,&11,&11,&11,&11,&33    ; &4E0C
-        EQUB &FF,&7F,&9F,&3F,&6E,&CC,&00,&FF,&FF,&B7,&D3,&D3,&1F,&BF,&6F,&CF    ; &4E1C
-        EQUB &8F,&8F,&CF,&C7,&C7,&E7,&E3,&F3,&F0,&F0,&F8,&FC,&76,&33,&00,&00    ; &4E2C
-        EQUB &CC,&FF,&FF,&FF,&FF,&7F,&0F,&0F,&0F,&0F,&CF,&BF,&1F,&0F,&0F,&FF    ; &4E3C
-        EQUB &F0,&F0,&F0,&F0,&F0,&F8,&00,&00,&00,&00,&88,&EE,&FF,&EE,&FF,&7F    ; &4E4C
-        EQUB &1F,&0F,&0F,&0F,&CF,&7F,&1F,&FF,&F0,&F0,&F0,&F0,&F0,&F1,&00,&00    ; &4E5C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&88,&EE,&3F,&1F,&1F,&0F,&8F,&8F    ; &4E6C
-        EQUB &8F,&CF,&CF,&CF,&8F,&CF,&77,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &4E7C
-        EQUB &00,&00,&00,&00,&88,&88,&88,&88,&88,&88,&88,&88,&88,&88,&88,&00    ; &4E8C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&67    ; &4E9C
-        EQUB &57,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&77,&DF    ; &4EAC
-        EQUB &9F,&BF,&AF,&AF,&BF,&FE,&76,&32,&32,&33,&11,&00,&00,&00,&11,&77    ; &4EBC
-        EQUB &FF,&77,&EF,&CF,&8F,&8F,&0F,&0F,&3F,&5F,&0F,&FF,&F0,&F0,&F0,&F0    ; &4ECC
-        EQUB &F0,&F8,&00,&33,&FF,&FF,&FF,&FF,&EF,&FB,&7D,&7E,&3F,&1F,&0F,&0F    ; &4EDC
-        EQUB &8F,&CF,&EF,&F3,&F1,&F0,&F0,&F0,&F1,&FF,&FF,&DE,&BC,&BC,&8F,&DF    ; &4EEC
-        EQUB &6F,&BF,&9F,&9F,&CF,&CF,&6F,&6F,&3F,&1F,&0F,&CF,&F7,&F3,&EE,&88    ; &4EFC
-        EQUB &88,&CC,&A6,&BF,&8F,&7F,&EE,&4C,&88,&00,&88,&88,&88,&88,&88,&88    ; &4F0C
-        EQUB &CC,&FF,&6F,&1F,&CF,&67,&33,&00,&00,&00,&EE,&2E,&EE,&00,&00,&00    ; &4F1C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&88,&88,&88,&EE,&2E,&EE,&00,&00    ; &4F2C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&22    ; &4F3C
-        EQUB &33,&31,&31,&33,&22,&77,&FC,&FF,&FF,&FF,&77,&CC,&E6,&E2,&EA,&EE    ; &4F4C
-        EQUB &CC,&77,&FC,&F9,&FB,&FF,&77,&CC,&E6,&EE,&EE,&EE,&CC,&66,&BF,&0F    ; &4F5C
-        EQUB &0F,&0F,&FF,&FB,&76,&33,&11,&11,&00,&00,&00,&FF,&8F,&0F,&0F,&FF    ; &4F6C
-        EQUB &FB,&F4,&FB,&FA,&F5,&FA,&FD,&F9,&EA,&44,&BF,&0F,&0F,&3F,&FE,&FD    ; &4F7C
-        EQUB &F2,&FD,&F2,&FD,&F2,&FD,&F9,&DD,&2F,&0F,&0F,&EF,&FB,&F5,&EA,&C4    ; &4F8C
-        EQUB &CC,&88,&88,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11    ; &4F9C
-        EQUB &33,&00,&00,&11,&33,&77,&67,&CF,&DF,&BF,&FF,&99,&99,&11,&33,&67    ; &4FAC
-        EQUB &67,&CF,&DF,&FF,&DD,&99,&88,&44,&00,&00,&00,&00,&00,&00,&00,&00    ; &4FBC
-        EQUB &11,&11,&11,&00,&00,&00,&33,&77,&EF,&FF,&33,&67,&CF,&8F,&8F,&0F    ; &4FCC
-        EQUB &0F,&0F,&0F,&0F,&0F,&0F,&1F,&1F,&0F,&0F,&0F,&0F,&0F,&0F,&8F,&8F    ; &4FDC
-        EQUB &8F,&CF,&77,&33,&32,&33,&11,&00,&77,&CF,&9F,&6E,&88,&00,&33,&EF    ; &4FEC
-        EQUB &CF,&0F,&0F,&8F,&0F,&0F,&3F,&7E,&FC,&F8,&F9,&F9,&FD,&7F,&0F,&0F    ; &4FFC
-        EQUB &7F,&F8,&F8,&F8,&FD,&7D,&7D,&7F,&2F,&2F,&0F,&0F,&0F,&FF,&F3,&F0    ; &500C
-        EQUB &FF,&77,&EF,&3F,&8F,&EF,&67,&EF,&8F,&0F,&0F,&0F,&0F,&0F,&0F,&0F    ; &501C
-        EQUB &EF,&F3,&F1,&FD,&FF,&FF,&EF,&CF,&0F,&0F,&5F,&EF,&8F,&8F,&8F,&0F    ; &502C
-        EQUB &0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&FF,&CC,&88,&DD,&7F,&6F,&0F,&1F    ; &503C
-        EQUB &3F,&3F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&3F,&7E,&7C,&7D,&7F,&7F    ; &504C
-        EQUB &3F,&1F,&0F,&0F,&5F,&BF,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F    ; &505C
-        EQUB &0F,&0F,&FF,&11,&00,&FF,&8F,&2F,&FF,&99,&00,&88,&EE,&3F,&1F,&0F    ; &506C
-        EQUB &0F,&0F,&0F,&0F,&EF,&F3,&F1,&F8,&FC,&FC,&FD,&FF,&0F,&0F,&7F,&F8    ; &507C
-        EQUB &F8,&F8,&FD,&7D,&7D,&7F,&2F,&2F,&0F,&0F,&0F,&7F,&FE,&F8,&FF,&88    ; &508C
-        EQUB &CC,&4C,&4C,&CC,&00,&00,&00,&88,&EE,&7F,&3F,&FF,&6E,&3F,&1F,&0F    ; &509C
-        EQUB &8F,&8F,&8F,&8F,&8F,&0F,&0F,&0F,&4F,&CF,&8F,&8F,&8F,&0F,&0F,&0F    ; &50AC
-        EQUB &0F,&0F,&0F,&1F,&3F,&EE,&E2,&E6,&CC,&00,&00,&00,&00,&00,&00,&00    ; &50BC
-        EQUB &00,&00,&00,&00,&88,&CC,&66,&00,&88,&CC,&EE,&7F,&3F,&1F,&5F,&6F    ; &50CC
-        EQUB &7F,&4C,&4C,&4C,&6E,&3F,&3F,&1F,&5F,&7F,&DD,&CC,&88,&99,&00,&00    ; &50DC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &50EC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&88,&88,&88,&88,&88,&88,&00,&00,&00    ; &50FC
-        EQUB &00,&88,&88,&88,&88,&88,&88,&00,&00,&00,&00,&00,&00,&33,&67,&CF    ; &510C
-        EQUB &BF,&8F,&CF,&67,&33,&11,&11,&11,&11,&11,&11,&11,&11,&11,&00,&00    ; &511C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&33,&77,&77,&FF    ; &512C
-        EQUB &FF,&FF,&FF,&7F,&0F,&0F,&0F,&8F,&0F,&0F,&3F,&FE,&F0,&F0,&F0,&F8    ; &513C
-        EQUB &FC,&FF,&8F,&8F,&CF,&CF,&47,&47,&47,&67,&47,&77,&FF,&FF,&FF,&FF    ; &514C
-        EQUB &FF,&FF,&FF,&FF,&FF,&FF,&1F,&3F,&3E,&7E,&7C,&FC,&F8,&F0,&F0,&F0    ; &515C
-        EQUB &F0,&F1,&F3,&FF,&5D,&5D,&CC,&4C,&4C,&5D,&DD,&5D,&4C,&CC,&88,&CC    ; &516C
-        EQUB &CC,&FF,&EF,&EF,&FF,&FF,&FD,&F9,&F3,&E3,&E3,&E3,&F3,&F1,&F0,&F0    ; &517C
-        EQUB &F0,&F0,&F0,&FF,&0F,&0F,&1F,&BF,&9F,&DF,&BF,&9F,&3F,&EE,&00,&00    ; &518C
-        EQUB &00,&00,&00,&88,&CC,&4C,&6E,&EE,&BF,&1F,&3F,&EE,&CC,&4C,&4C,&CC    ; &519C
-        EQUB &C4,&C4,&C4,&C4,&CC,&88,&88,&88,&88,&00,&00,&00,&00,&00,&00,&00    ; &51AC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &51BC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &51CC
-        EQUB &00,&00,&00,&00,&11,&33,&23,&67,&77,&CF,&8F,&CF,&77,&33,&33,&23    ; &51DC
-        EQUB &33,&32,&32,&32,&32,&33,&11,&11,&11,&11,&00,&00,&00,&00,&00,&00    ; &51EC
-        EQUB &00,&00,&00,&11,&33,&33,&FF,&7F,&7F,&FF,&FF,&1F,&0F,&0F,&0F,&0F    ; &51FC
-        EQUB &0F,&7F,&FC,&F0,&F0,&F0,&F0,&F0,&FF,&0F,&0F,&8F,&DF,&9F,&BF,&DF    ; &520C
-        EQUB &9F,&CF,&77,&00,&00,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&3F    ; &521C
-        EQUB &3E,&7E,&FC,&F8,&F0,&F0,&F0,&F0,&F0,&F0,&F8,&FC,&FF,&AB,&AB,&23    ; &522C
-        EQUB &33,&23,&AB,&BB,&AB,&23,&33,&88,&CC,&CC,&EE,&EE,&FF,&FF,&FF,&FB    ; &523C
-        EQUB &F3,&E3,&E7,&C7,&D7,&C7,&E7,&F3,&F1,&F0,&F0,&F0,&F1,&F3,&FF,&1F    ; &524C
-        EQUB &1F,&1F,&3F,&2E,&2E,&2E,&EE,&2E,&EE,&00,&00,&00,&00,&00,&CC,&6E    ; &525C
-        EQUB &3F,&DF,&1F,&3F,&6E,&CC,&88,&88,&88,&88,&88,&88,&88,&88,&88,&00    ; &526C
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&01,&77,&00,&00,&00    ; &527C
-        EQUB &00,&01,&77,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&67    ; &528C
-        EQUB &DF,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&00,&FF,&F8,&FB    ; &529C
-        EQUB &FD,&76,&33,&11,&11,&33,&76,&FD,&FB,&F8,&FF,&FF,&F0,&FF,&99,&FF    ; &52AC
-        EQUB &F6,&F9,&F9,&F6,&FF,&99,&FF,&F0,&FF,&FF,&F1,&FD,&FB,&E6,&CC,&88    ; &52BC
-        EQUB &88,&CC,&E6,&FB,&FD,&F1,&FF,&33,&76,&FD,&FC,&76,&33,&11,&00,&00    ; &52CC
-        EQUB &FF,&F0,&FF,&F0,&F0,&F1,&FB,&EE,&44,&88,&CC,&E6,&E6,&CC,&88,&00    ; &52DC
-        EQUB &00,&00,&FF,&F8,&FF,&74,&74,&75,&66,&00,&00,&00,&FF,&F0,&FF,&E2    ; &52EC
-        EQUB &E2,&EA,&66,&00,&00,&00,&FF,&F0,&FF,&00,&00,&00,&00,&00,&11,&33    ; &52FC
-        EQUB &FE,&F0,&FE,&33,&11,&00,&00,&FF,&F9,&F0,&F3,&F3,&F3,&F0,&F9,&FF    ; &530C
-        EQUB &00,&00,&88,&CC,&C4,&C4,&C4,&CC,&88,&00,&00,&77,&67,&AF,&BF,&AF    ; &531C
-        EQUB &BF,&AF,&AF,&BF,&AF,&67,&77,&EE,&2E,&7F,&9F,&3F,&DF,&1F,&1F,&FF    ; &532C
-        EQUB &3F,&2E,&EE,&FF,&0F,&3F,&CF,&0F,&FF,&0F,&0F,&FF,&0F,&0F,&FF,&FF    ; &533C
-        EQUB &0F,&CF,&3F,&0F,&8F,&7F,&0F,&CF,&3F,&0F,&FF,&FF,&0F,&0F,&FF,&0F    ; &534C
-        EQUB &FF,&0F,&0F,&3F,&CF,&0F,&FF,&0F,&0F,&FF,&0F,&9F,&6F,&0F,&FF,&0F    ; &535C
-        EQUB &0F,&FF,&11,&00,&00,&FF,&0F,&FF,&0F,&3F,&CF,&0F,&7F,&8F,&3F,&1F    ; &536C
-        EQUB &1F,&CF,&77,&11,&FF,&0F,&EF,&1F,&CF,&3F,&0F,&EF,&1F,&CF,&77,&99    ; &537C
-        EQUB &CC,&4C,&CC,&FF,&0F,&1F,&EF,&0F,&8F,&6F,&1F,&CF,&3F,&0F,&FF,&FF    ; &538C
-        EQUB &0F,&FF,&0F,&FF,&FF,&0F,&FF,&0F,&FF,&0F,&FF,&FF,&0F,&8F,&7F,&0F    ; &539C
-        EQUB &3F,&4F,&8F,&3F,&CF,&0F,&FF,&77,&DD,&CC,&00,&11,&11,&33,&67,&47    ; &53AC
-        EQUB &CF,&9F,&9F,&9F,&AF,&EF,&23,&23,&33,&11,&00,&33,&CF,&FF,&00,&77    ; &53BC
-        EQUB &FC,&FB,&FB,&FC,&7F,&0F,&9F,&9F,&AF,&3F,&2F,&3F,&1F,&0F,&0F,&0F    ; &53CC
-        EQUB &8F,&FF,&1F,&8F,&FF,&00,&BB,&FE,&BF,&BF,&FE,&BF,&AF,&1F,&1F,&EF    ; &53DC
-        EQUB &1F,&0F,&1F,&FF,&0F,&0F,&0F,&0F,&FF,&11,&AB,&BB,&11,&DD,&E6,&EA    ; &53EC
-        EQUB &FB,&F7,&DF,&0F,&2F,&2F,&BF,&9F,&9F,&8F,&0F,&0F,&0F,&1F,&3F,&EE    ; &53FC
-        EQUB &1F,&2F,&FF,&CC,&66,&66,&00,&00,&00,&88,&88,&CC,&4C,&6E,&2E,&2E    ; &540C
-        EQUB &AE,&EE,&88,&88,&88,&00,&00,&88,&6E,&EE,&00,&00,&00,&00,&00,&00    ; &541C
-        EQUB &00,&00,&00,&00,&11,&11,&33,&32,&32,&32,&32,&32,&33,&11,&11,&11    ; &542C
-        EQUB &00,&00,&00,&77,&FC,&F9,&F9,&FD,&75,&EF,&8F,&FF,&00,&00,&00,&11    ; &543C
-        EQUB &33,&32,&76,&74,&FF,&CF,&CF,&C7,&C7,&E7,&F7,&C4,&C4,&C4,&E6,&E2    ; &544C
-        EQUB &F3,&F9,&FF,&23,&EF,&EB,&E3,&FF,&11,&BB,&EF,&CF,&EF,&BB,&00,&33    ; &545C
-        EQUB &EF,&CF,&F3,&E6,&CC,&88,&88,&88,&7F,&7C,&7E,&FB,&FB,&F9,&FB,&EB    ; &546C
-        EQUB &FB,&74,&23,&EF,&0F,&0F,&0F,&0F,&0F,&0F,&8F,&FF,&6E,&3F,&3E,&FF    ; &547C
-        EQUB &00,&FF,&1F,&1F,&FF,&00,&00,&00,&11,&33,&EF,&E3,&E7,&FD,&FD,&F9    ; &548C
-        EQUB &FD,&7D,&FD,&E2,&4C,&7F,&0F,&0F,&1F,&1F,&1F,&1F,&1F,&FF,&77,&FC    ; &549C
-        EQUB &F1,&FF,&00,&00,&00,&00,&00,&00,&00,&00,&EE,&2E,&2E,&2E,&2E,&6E    ; &54AC
-        EQUB &88,&00,&00,&00,&00,&00,&00,&88,&CC,&EA,&EA,&F3,&F2,&F3,&F3,&F3    ; &54BC
-        EQUB &F3,&E7,&EF,&33,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &54CC
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&CC,&E6,&E2    ; &54DC
-        EQUB &E2,&E6,&C4,&EE,&2E,&EE,&EA,&EA,&FB,&F9,&FC,&77,&75,&75,&FD,&F9    ; &54EC
-        EQUB &F3,&EE,&EA,&FB,&EB,&F9,&FC,&FF,&AE,&AE,&FF,&FC,&F9,&EB,&FB,&EA    ; &54FC
-        EQUB &75,&FD,&3F,&9F,&D7,&DF,&57,&57,&DF,&D7,&9F,&3F,&FD,&75,&FF,&F8    ; &550C
-        EQUB &FC,&77,&23,&23,&33,&DD,&BF,&FC,&F9,&EB,&FB,&EA,&FF,&F1,&F3,&EE    ; &551C
-        EQUB &4C,&6E,&3F,&9F,&9F,&9F,&3F,&7D,&FD,&75,&00,&33,&76,&FC,&F8,&F8    ; &552C
-        EQUB &F8,&F8,&F8,&F8,&F8,&FC,&76,&33,&00,&00,&00,&00,&33,&FF,&F8,&F0    ; &553C
-        EQUB &F3,&F3,&F3,&F3,&F3,&F3,&F3,&F3,&F3,&F0,&F8,&FF,&33,&76,&FC,&FF    ; &554C
-        EQUB &FF,&F0,&F0,&FF,&FF,&F0,&F0,&FE,&FE,&F0,&F0,&F0,&F0,&F0,&F0,&F1    ; &555C
-        EQUB &F3,&EE,&88,&FF,&F0,&F0,&FB,&FB,&F3,&F3,&F3,&F3,&F3,&F3,&F3,&F0    ; &556C
-        EQUB &F0,&FF,&88,&00,&00,&00,&FF,&F0,&F0,&FF,&FF,&F1,&F1,&FF,&FE,&F7    ; &557C
-        EQUB &F3,&F1,&F0,&F0,&FF,&00,&00,&00,&00,&FF,&F0,&F0,&F0,&F9,&F9,&F9    ; &558C
-        EQUB &F1,&F1,&F1,&F9,&F9,&F0,&F0,&FF,&00,&00,&00,&00,&FF,&F0,&F0,&FF    ; &559C
-        EQUB &FF,&F8,&F8,&FF,&FF,&F8,&F8,&F8,&F0,&F0,&FF,&00,&00,&00,&00,&FF    ; &55AC
-        EQUB &F0,&F0,&F8,&FC,&FC,&FC,&FC,&FC,&FC,&FC,&FC,&F0,&F0,&FF,&00,&00    ; &55BC
-        EQUB &00,&00,&FF,&F0,&F0,&FC,&FC,&FD,&FF,&FF,&FF,&FD,&FC,&FC,&F0,&F0    ; &55CC
-        EQUB &FF,&00,&00,&00,&00,&FF,&F0,&F0,&F6,&FE,&FC,&F8,&F0,&F8,&FC,&FE    ; &55DC
-        EQUB &F6,&F0,&F0,&FF,&00,&00,&00,&00,&FF,&F0,&F0,&F3,&F3,&F3,&F3,&F3    ; &55EC
-        EQUB &F3,&F0,&F3,&F3,&F0,&F0,&FF,&00,&00,&00,&00,&CC,&F7,&F1,&F0,&F0    ; &55FC
-        EQUB &F0,&F0,&F0,&F0,&F0,&F0,&F0,&F1,&F7,&CC,&00,&00,&00,&00,&00,&00    ; &560C
-        EQUB &88,&CC,&C4,&C4,&C4,&C4,&C4,&C4,&C4,&CC,&88,&00,&00,&00,&00,&00    ; &561C
-        EQUB &00,&11,&00,&00,&00,&11,&11,&33,&76,&74,&74,&74,&76,&33,&11,&FF    ; &562C
-        EQUB &FF,&FF,&FF,&F9,&F9,&F0,&F0,&F0,&F0,&F0,&F0,&F0,&F0,&FF,&00,&88    ; &563C
-        EQUB &00,&00,&00,&88,&88,&CC,&E6,&E2,&E2,&E2,&E6,&CC,&88,&00,&00,&FF    ; &564C
-        EQUB &F8,&FF,&00,&00,&00,&00,&FF,&F8,&FF,&00,&00,&F9,&F9,&F9,&FF,&F9    ; &565C
-        EQUB &F9,&F9,&F9,&F9,&F9,&FF,&F9,&F9,&F9,&00,&00,&FF,&F1,&FF,&00,&00    ; &566C
-        EQUB &00,&00,&FF,&F1,&FF,&00,&00,&11,&00,&00,&00,&11,&11,&32,&75,&66    ; &567C
-        EQUB &88,&00,&88,&DD,&77,&FB,&F1,&E2,&CC,&00,&00,&00,&88,&CC,&EE,&88    ; &568C
-        EQUB &00,&88,&CC,&44,&00,&00,&00,&11,&67,&8F,&8F,&8F,&8F,&8F,&67,&11    ; &569C
-        EQUB &00,&FF,&0F,&3C,&1E,&0F,&0F,&0F,&0F,&FF,&66,&88,&6E,&1F,&97,&97    ; &56AC
-        EQUB &1F,&1F,&6E,&88,&00,&0A,&FD,&08,&01,&FD,&00,&0A,&FD,&08,&02,&FD    ; &56BC
-        EQUB &00,&0A,&FD,&08,&03,&FD,&00,&0A,&FD,&08,&04,&FD,&00,&09,&FD,&08    ; &56CC
-        EQUB &05,&FD,&00,&09,&FD,&08,&06,&FD,&00,&09,&FD,&08,&07,&FD,&00,&09    ; &56DC
-        EQUB &FD,&08,&08,&FD,&00,&0C,&FD,&09,&04,&FD,&00,&0B,&FD,&09,&08,&FD    ; &56EC
-        EQUB &00,&15,&00,&00,&15,&03,&00,&15,&00,&00,&3E,&03,&00,&15,&00,&00    ; &56FC
-        EQUB &3F,&03,&00,&15,&00,&00,&40,&03,&00,&15,&00,&00,&41,&03,&00,&15    ; &570C
-        EQUB &00,&00,&42,&03,&00,&18,&00,&00,&1A,&01,&00,&1B,&04,&00,&1C,&07    ; &571C
-        EQUB &00,&1B,&0A,&00,&1C,&0D,&00,&19,&10,&00,&18,&00,&00,&1A,&01,&00    ; &572C
-        EQUB &1A,&04,&00,&1B,&07,&00,&1B,&0A,&00,&1C,&0D,&00,&1B,&10,&00,&1A    ; &573C
-        EQUB &13,&00,&19,&16,&00,&18,&00,&00,&1B,&01,&00,&1C,&04,&00,&1C,&07    ; &574C
-        EQUB &00,&1A,&0A,&00,&1B,&0D,&00,&1A,&10,&00,&1A,&13,&00,&19,&16,&00    ; &575C
-        EQUB &18,&00,&00,&1A,&01,&00,&1A,&04,&00,&1A,&07,&00,&1B,&0A,&00,&1A    ; &576C
-        EQUB &0D,&00,&1C,&10,&00,&1A,&13,&00,&1A,&16,&00,&1B,&19,&00,&1A,&1C    ; &577C
-        EQUB &00,&1A,&1F,&00,&19,&22,&00,&18,&00,&00,&1C,&01,&00,&1B,&04,&00    ; &578C
-        EQUB &19,&07,&00,&18,&00,&00,&1A,&01,&00,&19,&04,&00,&1F,&00,&00,&20    ; &579C
-        EQUB &00,&06,&21,&00,&14,&1F,&00,&00,&20,&00,&06,&20,&00,&14,&21,&00    ; &57AC
-        EQUB &22,&1F,&00,&00,&20,&00,&06,&20,&00,&14,&20,&00,&22,&21,&00,&30    ; &57BC
-        EQUB &1F,&00,&00,&20,&00,&06,&20,&00,&14,&20,&00,&22,&20,&00,&30,&21    ; &57CC
-        EQUB &00,&3E,&11,&00,&00,&11,&04,&00,&11,&00,&00,&4E,&04,&00,&11,&00    ; &57DC
-        EQUB &00,&4F,&04,&00,&11,&00,&00,&50,&04,&00,&11,&00,&00,&51,&04,&00    ; &57EC
-        EQUB &11,&00,&00,&52,&04,&00,&00,&00,&00,&00,&00,&19,&00,&00,&00,&54    ; &57FC
-        EQUB &00,&19,&00,&00,&00,&55,&00,&19,&24,&00,&00,&24,&00,&0E,&24,&00    ; &580C
-        EQUB &00,&57,&00,&0E,&24,&00,&00,&58,&00,&0E,&24,&00,&00,&59,&00,&0E    ; &581C
-        EQUB &22,&03,&1A    ; &582C
-Runtime_1FFD_SourceEnd:
-; -----------------------------------------------------------------------------
-; Packed MODE 1 lookup table installed at runtime &0A00-&0AFF.
-; -----------------------------------------------------------------------------
-Runtime_0A00_Source:
-        EQUB &FF,&EE,&DD,&CC,&BB,&AA,&99,&88,&77,&66,&55,&44,&33,&22,&11,&00    ; &582F
-        EQUB &EE,&EE,&CC,&CC,&AA,&AA,&88,&88,&66,&66,&44,&44,&22,&22,&00,&00    ; &583F
-        EQUB &DD,&CC,&DD,&CC,&99,&88,&99,&88,&55,&44,&55,&44,&11,&00,&11,&00    ; &584F
-        EQUB &CC,&CC,&CC,&CC,&88,&88,&88,&88,&44,&44,&44,&44,&00,&00,&00,&00    ; &585F
-        EQUB &BB,&AA,&99,&88,&BB,&AA,&99,&88,&33,&22,&11,&00,&33,&22,&11,&00    ; &586F
-        EQUB &AA,&AA,&88,&88,&AA,&AA,&88,&88,&22,&22,&00,&00,&22,&22,&00,&00    ; &587F
-        EQUB &99,&88,&99,&88,&99,&88,&99,&88,&11,&00,&11,&00,&11,&00,&11,&00    ; &588F
-        EQUB &88,&88,&88,&88,&88,&88,&88,&88,&00,&00,&00,&00,&00,&00,&00,&00    ; &589F
-        EQUB &77,&66,&55,&44,&33,&22,&11,&00,&77,&66,&55,&44,&33,&22,&11,&00    ; &58AF
-        EQUB &66,&66,&44,&44,&22,&22,&00,&00,&66,&66,&44,&44,&22,&22,&00,&00    ; &58BF
-        EQUB &55,&44,&55,&44,&11,&00,&11,&00,&55,&44,&55,&44,&11,&00,&11,&00    ; &58CF
-        EQUB &44,&44,&44,&44,&00,&00,&00,&00,&44,&44,&44,&44,&00,&00,&00,&00    ; &58DF
-        EQUB &33,&22,&11,&00,&33,&22,&11,&00,&33,&22,&11,&00,&33,&22,&11,&00    ; &58EF
-        EQUB &22,&22,&00,&00,&22,&22,&00,&00,&22,&22,&00,&00,&22,&22,&00,&00    ; &58FF
-        EQUB &11,&00,&11,&00,&11,&00,&11,&00,&11,&00,&11,&00,&11,&00,&11,&00    ; &590F
-        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00    ; &591F
-Runtime_0A00_SourceEnd:
-; -----------------------------------------------------------------------------
-; Packed sound/level data installed at runtime &0507-&07FE.
-; -----------------------------------------------------------------------------
-Runtime_0507_Source:
-        EQUB &21,&21,&29,&31,&36,&22,&29,&36,&21,&20,&29,&36,&22,&29,&35,&3D    ; &592F
-        EQUB &41,&45,&4A,&36,&3D,&4A,&28,&28,&2C,&30,&34,&4A,&35,&34,&3D,&48    ; &593F
-        EQUB &48,&45,&49,&4D,&52,&3D,&3C,&45,&52,&30,&34,&30,&38,&3C,&52,&3D    ; &594F
-        EQUB &3C,&45,&50,&54,&58,&41,&34,&3D,&36,&34,&16,&14,&1A,&18,&1E,&1C    ; &595F
-        EQUB &20,&1C,&20,&25,&2C,&A5,&0F,&3D,&0D,&1B,&49,&19,&0D,&3D,&0D,&19    ; &596F
-        EQUB &49,&19,&3D,&0D,&2B,&51,&29,&09,&59,&09,&0D,&3D,&29,&21,&0D,&19    ; &597F
-        EQUB &21,&15,&6D,&0F,&6D,&0D,&1B,&55,&19,&0D,&51,&0D,&19,&51,&19,&49    ; &598F
-        EQUB &0D,&2B,&51,&29,&09,&59,&09,&0D,&3D,&29,&23,&1B,&15,&D9,&23,&0D    ; &599F
-        EQUB &11,&17,&31,&2D,&29,&11,&0D,&1D,&21,&0D,&15,&1D,&23,&0D,&11,&17    ; &59AF
-        EQUB &31,&2D,&29,&21,&1D,&15,&0D,&15,&19,&1D,&23,&0D,&15,&21,&29,&2D    ; &59BF
-        EQUB &31,&37,&31,&35,&3B,&35,&39,&23,&1D,&19,&15,&33,&2D,&29,&11,&0D    ; &59CF
-        EQUB &1D,&21,&3C,&3D,&44,&BD,&5D,&48,&51,&48,&3D,&AF,&44,&45,&52,&50    ; &59DF
-        EQUB &54,&59,&50,&46,&41,&3C,&44,&3C,&51,&40,&45,&37,&E7,&43,&54,&08    ; &59EF
-        EQUB &0A,&30,&00,&4D,&38,&33,&BC,&7B,&7E,&4C,&30,&69,&30,&33,&70,&17    ; &59FF
-        EQUB &BC,&A7,&BC,&00,&4B,&18,&A8,&2E,&7B,&2F,&5B,&BB,&09,&3D,&BC,&2A    ; &5A0F
-        EQUB &2A,&2F,&14,&7D,&A8,&7D,&69,&7D,&4C,&7D,&00,&46,&F8,&08,&2F,&28    ; &5A1F
-        EQUB &7C,&28,&2F,&2D,&76,&32,&6F,&37,&66,&3C,&5D,&4B,&7C,&4F,&91,&53    ; &5A2F
-        EQUB &A6,&5F,&A6,&63,&91,&7A,&7D,&80,&8A,&86,&98,&8D,&A6,&94,&B3,&80    ; &5A3F
-        EQUB &77,&86,&6C,&8D,&60,&94,&53,&94,&2E,&A6,&BB,&A6,&7D,&A6,&2E,&3C    ; &5A4F
-        EQUB &7C,&5F,&89,&4F,&74,&53,&89,&63,&74,&67,&7C,&41,&95,&BB,&3B,&2F    ; &5A5F
-        EQUB &49,&2F,&57,&BB,&66,&2F,&77,&2F,&77,&BB,&57,&9E,&0C,&09,&7C,&15    ; &5A6F
-        EQUB &09,&BB,&28,&BB,&00,&4C,&40,&3E,&42,&51,&76,&55,&8B,&59,&A0,&60    ; &5A7F
-        EQUB &8B,&96,&38,&64,&76,&5C,&A0,&29,&A8,&54,&0A,&92,&3E,&92,&29,&92    ; &5A8F
-        EQUB &7B,&92,&0A,&A8,&84,&2B,&68,&38,&0A,&37,&29,&37,&4D,&37,&7B,&38    ; &5A9F
-        EQUB &00,&FF,&4A,&54,&08,&07,&38,&00,&4D,&41,&6F,&2F,&64,&89,&16,&90    ; &5AAF
-        EQUB &7D,&2A,&42,&57,&2F,&28,&48,&E6,&2A,&CD,&00,&4B,&20,&05,&90,&34    ; &5ABF
-        EQUB &42,&87,&17,&86,&94,&09,&5F,&D5,&12,&04,&BC,&21,&A2,&00,&46,&30    ; &5ACF
-        EQUB &00,&BB,&50,&71,&34,&89,&41,&45,&6E,&60,&7A,&17,&09,&1A,&16,&0A    ; &5ADF
-        EQUB &00,&37,&0B,&43,&D4,&5C,&15,&69,&26,&BB,&2F,&58,&47,&1B,&72,&D7    ; &5AEF
-        EQUB &79,&AF,&75,&9A,&7A,&79,&03,&90,&2B,&71,&69,&17,&AD,&22,&79,&12    ; &5AFF
-        EQUB &90,&27,&92,&19,&BB,&35,&B5,&41,&AE,&4D,&A8,&39,&1B,&59,&1C,&5C    ; &5B0F
-        EQUB &28,&5F,&34,&62,&40,&6C,&79,&6C,&A1,&84,&94,&37,&28,&33,&42,&35    ; &5B1F
-        EQUB &35,&19,&CB,&16,&D7,&1F,&A1,&00,&4C,&68,&15,&44,&50,&AF,&4A,&20    ; &5B2F
-        EQUB &35,&64,&29,&96,&50,&4C,&6E,&3B,&79,&B2,&80,&8A,&6E,&7C,&0E,&96    ; &5B3F
-        EQUB &23,&7C,&7D,&3B,&21,&16,&99,&42,&4B,&2F,&1A,&1C,&2B,&0A,&64,&7D    ; &5B4F
-        EQUB &0B,&72,&67,&00,&FF,&47,&54,&08,&06,&3A,&00,&4D,&50,&40,&94,&0F    ; &5B5F
-        EQUB &B0,&1F,&91,&2E,&4A,&99,&1F,&B0,&90,&21,&4A,&4F,&1F,&85,&1F,&7D    ; &5B6F
-        EQUB &C8,&00,&4B,&20,&0D,&90,&57,&6F,&8A,&C2,&B6,&8F,&21,&18,&6D,&13    ; &5B7F
-        EQUB &6D,&5A,&D1,&24,&16,&22,&19,&B0,&7C,&8C,&45,&28,&8F,&1F,&00,&46    ; &5B8F
-        EQUB &A0,&06,&AF,&0F,&AF,&18,&AF,&1F,&90,&16,&90,&0C,&90,&2E,&49,&3B    ; &5B9F
-        EQUB &49,&45,&52,&3B,&5C,&85,&1E,&8E,&1E,&99,&1E,&99,&71,&A2,&71,&98    ; &5BAF
-        EQUB &80,&A4,&8F,&97,&8F,&7D,&C7,&A2,&1E,&59,&6E,&5A,&7D,&41,&28,&8D    ; &5BBF
-        EQUB &1A,&33,&1C,&3F,&1E,&49,&41,&27,&57,&D0,&6E,&B9,&6E,&C7,&9C,&AF    ; &5BCF
-        EQUB &32,&56,&6F,&A2,&62,&72,&1E,&45,&66,&7B,&8B,&B0,&8F,&1B,&4F,&1E    ; &5BDF
-        EQUB &22,&DA,&24,&15,&14,&02,&39,&3C,&93,&1E,&4F,&A7,&3C,&DA,&82,&DF    ; &5BEF
-        EQUB &00,&4C,&30,&22,&AB,&4F,&AB,&2E,&1A,&72,&2B,&95,&B0,&A9,&33,&19    ; &5BFF
-        EQUB &57,&32,&81,&4E,&3C,&9D,&12,&2C,&8F,&82,&94,&2B,&06,&56,&41,&3A    ; &5C0F
-        EQUB &6E,&60,&9D,&56,&9F,&56,&00,&FF    ; &5C1F
-Runtime_0507_SourceEnd:
-; -----------------------------------------------------------------------------
-; Packed high-score table installed at runtime &0880-&08A3.
-; -----------------------------------------------------------------------------
-Runtime_0880_Source:
-        EQUB &76,&26,&6F,&00,&01,&00,&4E,&49,&4B,&00,&01,&00,&42,&4F,&46,&00    ; &5C27
-        EQUB &01,&00,&43,&41,&50,&00,&01,&00,&50,&41,&4D,&00,&01,&00,&44,&43    ; &5C37
-        EQUB &45,&00,&01,&00    ; &5C47
-
-Runtime_0880_SourceEnd:
 
 ; =============================================================================
-; Clean startup / runtime installer
+; &1FFD-&2FFF - sprite descriptors, graphics and associated data
 ; =============================================================================
-; This code is deliberately stored after all packed runtime source data.  At the
-; historical &2F00 origin the sprite installation overwrites &2F00-&2FFF, so the
-; three-byte entry stub jumps here before that copy begins.
+ORG &1FFD
+EQUB &00,&01,&01,&01,&00,&01,&02,&01,&01,&FF,&00,&FF,&01,&00,&00,&00
+        EQUB &00,&00,&FD,&FE,&FE,&00,&FF,&FE,&00,&00,&00,&00,&00,&FF,&FD,&00
+        EQUB &00,&00,&00,&00,&FF,&FF,&FF,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&01,&02,&00,&00,&00,&00,&F3,&00,&00
+        EQUB &00,&F3,&00,&00,&F5,&F5,&F5,&F2,&F5,&00,&EF,&00,&00,&00,&00,&00
+        EQUB &00,&FB,&FB,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&28,&5C,&93,&CA,&FC,&3B,&72,&A3
+        EQUB &E5,&27,&F7,&C7,&84,&25,&31,&25,&31,&3D,&73,&E8,&B1,&7D,&A7,&BF
+        EQUB &FB,&07,&13,&36,&63,&87,&FA,&C6,&D2,&EE,&0A,&00,&2D,&56,&56,&77
+        EQUB &FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&95,&9B,&A1,&A7
+        EQUB &AD,&B3,&B9,&BF,&C5,&CB,&D1,&D7,&DD,&E3,&E9,&EF,&F5,&0A,&25,&40
+        EQUB &67,&73,&7C,&85,&91,&A0,&B2,&B8,&BE,&C4,&CA,&D0,&D6,&DC,&E2,&E8
+        EQUB &EE,&F4,&FA,&00,&02,&02,&02,&02,&02,&03,&03,&03,&03,&04,&04,&05
+        EQUB &06,&07,&07,&07,&07,&07,&07,&08,&09,&0A,&0A,&0A,&0A,&0B,&0B,&0B
+        EQUB &0B,&0B,&0B,&0C,&0C,&0C,&0D,&0E,&0E,&0E,&0E,&0E,&FF,&FF,&FF,&FF
+        EQUB &FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&0E,&0E,&0E,&0E,&0E,&0E,&0E,&0E
+        EQUB &0E,&0E,&0E,&0E,&0E,&0E,&0E,&0E,&0E,&0F,&0F,&0F,&0F,&0F,&0F,&0F
+        EQUB &0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&10
+        EQUB &02,&04,&04,&04,&05,&04,&04,&05,&05,&07,&07,&07,&06,&02,&02,&82
+        EQUB &82,&04,&09,&05,&05,&03,&03,&06,&01,&01,&03,&03,&03,&05,&06,&02
+        EQUB &02,&02,&0D,&03,&03,&03,&83,&03,&02,&04,&06,&08,&0A,&0C,&0E,&10
+        EQUB &12,&14,&16,&18,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&1A,&0B,&0B,&0B
+        EQUB &0B,&0B,&0B,&0B,&0B,&1A,&1A,&18,&17,&06,&06,&06,&06,&0E,&2A,&22
+        EQUB &22,&0E,&09,&0A,&0C,&0C,&0C,&0F,&0C,&17,&22,&06,&0E,&0E,&13,&0F
+        EQUB &0E,&0B,&0B,&0A,&01,&01,&01,&01,&01,&01,&01,&01,&01,&01,&01,&01
+        EQUB &02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02,&02
+        EQUB &07,&09,&09,&0D,&04,&03,&03,&04,&05,&06,&02,&02,&02,&02,&02,&02
+        EQUB &02,&02,&02,&02,&02,&02,&02,&01,&F9,&F9,&F9,&F9,&F9,&F9,&F8,&74
+        EQUB &74,&F8,&F9,&F9,&F9,&F9,&F8,&74,&74,&74,&74,&74,&F8,&F9,&F9,&F9
+        EQUB &F9,&F9,&00,&00,&00,&00,&00,&00,&88,&88,&88,&88,&00,&00,&00,&00
+        EQUB &88,&88,&88,&88,&88,&88,&88,&00,&00,&00,&00,&00,&11,&11,&00,&00
+        EQUB &00,&00,&11,&11,&33,&23,&33,&FF,&8F,&CF,&67,&DF,&8F,&9F,&1F,&3F
+        EQUB &0F,&FF,&FF,&3F,&1F,&1F,&0F,&8F,&8F,&CF,&CF,&8F,&FF,&00,&00,&00
+        EQUB &88,&88,&88,&88,&BB,&DF,&1F,&FF,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&11,&00,&00,&11,&33,&67,&47,&47,&67,&33,&00,&FF,&8F
+        EQUB &8F,&8F,&8F,&4F,&4F,&CF,&4F,&8F,&FF,&FF,&2E,&2E,&2E,&6E,&4C,&CC
+        EQUB &FF,&DF,&1F,&FF,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&00,&00,&11,&33,&77
+        EQUB &47,&47,&67,&23,&33,&FF,&8F,&8F,&8F,&0F,&1F,&3F,&7F,&7F,&1F,&FF
+        EQUB &FF,&2E,&2E,&7F,&9F,&1F,&1F,&9F,&8F,&CF,&77,&00,&00,&00,&00,&00
+        EQUB &00,&EE,&AE,&2E,&EE,&CC,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&11,&11,&11,&11,&00,&00,&11,&00,&11,&11,&77,&CF,&0F,&1F,&9F
+        EQUB &8F,&FF,&FF,&8F,&8F,&0F,&1F,&2F,&6F,&EF,&EF,&CF,&FF,&FF,&2E,&6E
+        EQUB &AE,&2E,&2E,&6E,&7F,&6F,&0F,&FF,&00,&00,&00,&00,&00,&00,&00,&88
+        EQUB &88,&88,&88,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&11
+        EQUB &11,&11,&DD,&BF,&8F,&FF,&FF,&CF,&8F,&8F,&0F,&1F,&1F,&3F,&3F,&1F
+        EQUB &FF,&FF,&1F,&3F,&6E,&BF,&1F,&9F,&8F,&CF,&0F,&FF,&CC,&88,&00,&00
+        EQUB &00,&00,&88,&88,&CC,&4C,&CC,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&FF,&47,&47,&47,&67,&23,&33,&FF,&BF,&8F,&FF,&FF,&1F,&1F
+        EQUB &1F,&1F,&2F,&2F,&3F,&2F,&1F,&FF,&88,&00,&00,&88,&CC,&6E,&2E,&2E
+        EQUB &6E,&CC,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&77,&57,&47,&77,&33,&FF,&47
+        EQUB &47,&EF,&9F,&8F,&8F,&9F,&1F,&3F,&EE,&FF,&1F,&1F,&1F,&0F,&8F,&CF
+        EQUB &EF,&EF,&8F,&FF,&88,&00,&00,&88,&CC,&EE,&2E,&2E,&6E,&4C,&CC,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&33,&23,&67,&47,&CF,&0F
+        EQUB &3F,&6E,&7F,&3F,&FF,&00,&00,&00,&00,&00,&00,&00,&11,&11,&11,&11
+        EQUB &FF,&47,&67,&57,&47,&47,&67,&EF,&6F,&0F,&FF,&FF,&1F,&1F,&0F,&8F
+        EQUB &4F,&6F,&7F,&7F,&3F,&FF,&88,&00,&88,&88,&EE,&3F,&0F,&8F,&9F,&1F
+        EQUB &FF,&00,&00,&00,&00,&00,&88,&88,&88,&88,&00,&00,&33,&23,&67,&47
+        EQUB &CF,&0F,&3F,&6E,&7F,&3F,&FF,&00,&00,&00,&33,&23,&33,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&11,&23,&EF,&0F,&FF,&33,&11,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&FF,&FF,&D3,&E9,&E9
+        EQUB &0F,&DF,&3F,&FF,&77,&67,&67,&EF,&FB,&FB,&FF,&CF,&CF,&FF,&FC,&76
+        EQUB &33,&11,&00,&00,&00,&88,&EE,&FF,&FF,&FF,&FF,&BF,&8F,&0F,&2F,&2F
+        EQUB &3F,&1F,&8F,&FF,&FF,&6F,&0F,&FF,&F0,&F0,&F0,&F8,&00,&00,&00,&00
+        EQUB &00,&88,&CC,&FF,&FF,&FF,&3F,&1F,&0F,&0F,&0F,&8F,&CF,&FF,&CF,&0F
+        EQUB &0F,&FF,&F0,&F0,&F0,&F1,&00,&00,&00,&00,&00,&00,&00,&00,&88,&00
+        EQUB &88,&EE,&FF,&DF,&6F,&6F,&3F,&1F,&1F,&1F,&3F,&FF,&F1,&F3,&F6,&FF
+        EQUB &77,&77,&33,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&88,&88,&88
+        EQUB &CC,&4C,&4C,&4C,&6E,&3F,&1F,&DF,&F3,&FD,&FF,&FF,&EE,&11,&33,&67
+        EQUB &DF,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&00,&4C,&F4,&FF
+        EQUB &85,&20,&A9,&80,&24,&20,&D0,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&11,&11,&11,&33,&23,&23,&23,&67,&CF,&8F,&BF,&FC,&FB,&FF,&FF
+        EQUB &77,&00,&00,&00,&00,&00,&11,&00,&11,&77,&CF,&8F,&0F,&1F,&1F,&3F
+        EQUB &2F,&7F,&7C,&FC,&7C,&FE,&F7,&FF,&EE,&EE,&CC,&00,&00,&11,&33,&FF
+        EQUB &FF,&FF,&DF,&0F,&0F,&0F,&3F,&EF,&0F,&0F,&1F,&FF,&F0,&F0,&F0,&F0
+        EQUB &F0,&F8,&00,&00,&00,&11,&77,&FF,&FF,&FF,&FF,&DF,&E7,&FB,&F9,&FD
+        EQUB &FD,&FC,&FC,&F8,&F8,&F0,&F0,&F0,&F0,&F0,&F0,&F1,&00,&00,&00,&FF
+        EQUB &FF,&BC,&79,&79,&0F,&BF,&CF,&7F,&2E,&3F,&9F,&9F,&DF,&D7,&F7,&F3
+        EQUB &F1,&F1,&F1,&F3,&E6,&CC,&00,&00,&00,&00,&88,&4C,&7F,&0F,&FF,&CC
+        EQUB &88,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&CC,&4C,&CC,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&67
+        EQUB &DF,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&00,&4C,&F4,&FF
+        EQUB &85,&20,&A9,&80,&24,&20,&D0,&00,&00,&00,&77,&47,&77,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&11,&11,&11,&77,&47,&77,&00,&11
+        EQUB &33,&56,&DF,&1F,&EF,&77,&23,&11,&00,&11,&11,&11,&11,&11,&11,&33
+        EQUB &FF,&7F,&9F,&3F,&6E,&CC,&00,&FF,&FF,&B7,&D3,&D3,&1F,&BF,&6F,&CF
+        EQUB &8F,&8F,&CF,&C7,&C7,&E7,&E3,&F3,&F0,&F0,&F8,&FC,&76,&33,&00,&00
+        EQUB &CC,&FF,&FF,&FF,&FF,&7F,&0F,&0F,&0F,&0F,&CF,&BF,&1F,&0F,&0F,&FF
+        EQUB &F0,&F0,&F0,&F0,&F0,&F8,&00,&00,&00,&00,&88,&EE,&FF,&EE,&FF,&7F
+        EQUB &1F,&0F,&0F,&0F,&CF,&7F,&1F,&FF,&F0,&F0,&F0,&F0,&F0,&F1,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&88,&EE,&3F,&1F,&1F,&0F,&8F,&8F
+        EQUB &8F,&CF,&CF,&CF,&8F,&CF,&77,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&88,&88,&88,&88,&88,&88,&88,&88,&88,&88,&88,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&67
+        EQUB &57,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&77,&DF
+        EQUB &9F,&BF,&AF,&AF,&BF,&FE,&76,&32,&32,&33,&11,&00,&00,&00,&11,&77
+        EQUB &FF,&77,&EF,&CF,&8F,&8F,&0F,&0F,&3F,&5F,&0F,&FF,&F0,&F0,&F0,&F0
+        EQUB &F0,&F8,&00,&33,&FF,&FF,&FF,&FF,&EF,&FB,&7D,&7E,&3F,&1F,&0F,&0F
+        EQUB &8F,&CF,&EF,&F3,&F1,&F0,&F0,&F0,&F1,&FF,&FF,&DE,&BC,&BC,&8F,&DF
+        EQUB &6F,&BF,&9F,&9F,&CF,&CF,&6F,&6F,&3F,&1F,&0F,&CF,&F7,&F3,&EE,&88
+        EQUB &88,&CC,&A6,&BF,&8F,&7F,&EE,&4C,&88,&00,&88,&88,&88,&88,&88,&88
+        EQUB &CC,&FF,&6F,&1F,&CF,&67,&33,&00,&00,&00,&EE,&2E,&EE,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&88,&88,&88,&EE,&2E,&EE,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&22
+        EQUB &33,&31,&31,&33,&22,&77,&FC,&FF,&FF,&FF,&77,&CC,&E6,&E2,&EA,&EE
+        EQUB &CC,&77,&FC,&F9,&FB,&FF,&77,&CC,&E6,&EE,&EE,&EE,&CC,&66,&BF,&0F
+        EQUB &0F,&0F,&FF,&FB,&76,&33,&11,&11,&00,&00,&00,&FF,&8F,&0F,&0F,&FF
+        EQUB &FB,&F4,&FB,&FA,&F5,&FA,&FD,&F9,&EA,&44,&BF,&0F,&0F,&3F,&FE,&FD
+        EQUB &F2,&FD,&F2,&FD,&F2,&FD,&F9,&DD,&2F,&0F,&0F,&EF,&FB,&F5,&EA,&C4
+        EQUB &CC,&88,&88,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11
+        EQUB &33,&00,&00,&11,&33,&77,&67,&CF,&DF,&BF,&FF,&99,&99,&11,&33,&67
+        EQUB &67,&CF,&DF,&FF,&DD,&99,&88,&44,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &11,&11,&11,&00,&00,&00,&33,&77,&EF,&FF,&33,&67,&CF,&8F,&8F,&0F
+        EQUB &0F,&0F,&0F,&0F,&0F,&0F,&1F,&1F,&0F,&0F,&0F,&0F,&0F,&0F,&8F,&8F
+        EQUB &8F,&CF,&77,&33,&32,&33,&11,&00,&77,&CF,&9F,&6E,&88,&00,&33,&EF
+        EQUB &CF,&0F,&0F,&8F,&0F,&0F,&3F,&7E,&FC,&F8,&F9,&F9,&FD,&7F,&0F,&0F
+        EQUB &7F,&F8,&F8,&F8,&FD,&7D,&7D,&7F,&2F,&2F,&0F,&0F,&0F,&FF,&F3,&F0
+        EQUB &FF,&77,&EF,&3F,&8F,&EF,&67,&EF,&8F,&0F,&0F,&0F,&0F,&0F,&0F,&0F
+        EQUB &EF,&F3,&F1,&FD,&FF,&FF,&EF,&CF,&0F,&0F,&5F,&EF,&8F,&8F,&8F,&0F
+        EQUB &0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&FF,&CC,&88,&DD,&7F,&6F,&0F,&1F
+        EQUB &3F,&3F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&3F,&7E,&7C,&7D,&7F,&7F
+        EQUB &3F,&1F,&0F,&0F,&5F,&BF,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F,&0F
+        EQUB &0F,&0F,&FF,&11,&00,&FF,&8F,&2F,&FF,&99,&00,&88,&EE,&3F,&1F,&0F
+        EQUB &0F,&0F,&0F,&0F,&EF,&F3,&F1,&F8,&FC,&FC,&FD,&FF,&0F,&0F,&7F,&F8
+        EQUB &F8,&F8,&FD,&7D,&7D,&7F,&2F,&2F,&0F,&0F,&0F,&7F,&FE,&F8,&FF,&88
+        EQUB &CC,&4C,&4C,&CC,&00,&00,&00,&88,&EE,&7F,&3F,&FF,&6E,&3F,&1F,&0F
+        EQUB &8F,&8F,&8F,&8F,&8F,&0F,&0F,&0F,&4F,&CF,&8F,&8F,&8F,&0F,&0F,&0F
+        EQUB &0F,&0F,&0F,&1F,&3F,&EE,&E2,&E6,&CC,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&88,&CC,&66,&00,&88,&CC,&EE,&7F,&3F,&1F,&5F,&6F
+        EQUB &7F,&4C,&4C,&4C,&6E,&3F,&3F,&1F,&5F,&7F,&DD,&CC,&88,&99,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&88,&88,&88,&88,&88,&88,&00,&00,&00
+        EQUB &00,&88,&88,&88,&88,&88,&88,&00,&00,&00,&00,&00,&00,&33,&67,&CF
+        EQUB &BF,&8F,&CF,&67,&33,&11,&11,&11,&11,&11,&11,&11,&11,&11,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&33,&77,&77,&FF
+        EQUB &FF,&FF,&FF,&7F,&0F,&0F,&0F,&8F,&0F,&0F,&3F,&FE,&F0,&F0,&F0,&F8
+        EQUB &FC,&FF,&8F,&8F,&CF,&CF,&47,&47,&47,&67,&47,&77,&FF,&FF,&FF,&FF
+        EQUB &FF,&FF,&FF,&FF,&FF,&FF,&1F,&3F,&3E,&7E,&7C,&FC,&F8,&F0,&F0,&F0
+        EQUB &F0,&F1,&F3,&FF,&5D,&5D,&CC,&4C,&4C,&5D,&DD,&5D,&4C,&CC,&88,&CC
+        EQUB &CC,&FF,&EF,&EF,&FF,&FF,&FD,&F9,&F3,&E3,&E3,&E3,&F3,&F1,&F0,&F0
+        EQUB &F0,&F0,&F0,&FF,&0F,&0F,&1F,&BF,&9F,&DF,&BF,&9F,&3F,&EE,&00,&00
+        EQUB &00,&00,&00,&88,&CC,&4C,&6E,&EE,&BF,&1F,&3F,&EE,&CC,&4C,&4C,&CC
+        EQUB &C4,&C4,&C4,&C4,&CC,&88,&88,&88,&88,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&11,&33,&23,&67,&77,&CF,&8F,&CF,&77,&33,&33,&23
+        EQUB &33,&32,&32,&32,&32,&33,&11,&11,&11,&11,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&11,&33,&33,&FF,&7F,&7F,&FF,&FF,&1F,&0F,&0F,&0F,&0F
+        EQUB &0F,&7F,&FC,&F0,&F0,&F0,&F0,&F0,&FF,&0F,&0F,&8F,&DF,&9F,&BF,&DF
+        EQUB &9F,&CF,&77,&00,&00,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&FF,&3F
+        EQUB &3E,&7E,&FC,&F8,&F0,&F0,&F0,&F0,&F0,&F0,&F8,&FC,&FF,&AB,&AB,&23
+        EQUB &33,&23,&AB,&BB,&AB,&23,&33,&88,&CC,&CC,&EE,&EE,&FF,&FF,&FF,&FB
+        EQUB &F3,&E3,&E7,&C7,&D7,&C7,&E7,&F3,&F1,&F0,&F0,&F0,&F1,&F3,&FF,&1F
+        EQUB &1F,&1F,&3F,&2E,&2E,&2E,&EE,&2E,&EE,&00,&00,&00,&00,&00,&CC,&6E
+        EQUB &3F,&DF,&1F,&3F,&6E,&CC,&88,&88,&88,&88,&88,&88,&88,&88,&88,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&01,&77,&00,&00,&00
+        EQUB &00,&01,&77,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&11,&33,&67
+        EQUB &DF,&67,&33,&11,&00,&00,&00,&00,&00,&00,&00,&00,&00,&FF,&F8,&FB
+        EQUB &FD,&76,&33,&11,&11,&33,&76,&FD,&FB,&F8,&FF,&FF,&F0,&FF,&99,&FF
+        EQUB &F6,&F9,&F9,&F6,&FF,&99,&FF,&F0,&FF,&FF,&F1,&FD,&FB,&E6,&CC,&88
+        EQUB &88,&CC,&E6,&FB,&FD,&F1,&FF,&33,&76,&FD,&FC,&76,&33,&11,&00,&00
+        EQUB &FF,&F0,&FF,&F0,&F0,&F1,&FB,&EE,&44,&88,&CC,&E6,&E6,&CC,&88,&00
+        EQUB &00,&00,&FF,&F8,&FF,&74,&74,&75,&66,&00,&00,&00,&FF,&F0,&FF,&E2
+        EQUB &E2,&EA,&66,&00,&00,&00,&FF,&F0,&FF,&00,&00,&00,&00,&00,&11,&33
+        EQUB &FE,&F0,&FE,&33,&11,&00,&00,&FF,&F9,&F0,&F3,&F3,&F3,&F0,&F9,&FF
+        EQUB &00,&00,&88,&CC,&C4,&C4,&C4,&CC,&88,&00,&00,&77,&67,&AF,&BF,&AF
+        EQUB &BF,&AF,&AF,&BF,&AF,&67,&77,&EE,&2E,&7F,&9F,&3F,&DF,&1F,&1F,&FF
+        EQUB &3F,&2E,&EE,&FF,&0F,&3F,&CF,&0F,&FF,&0F,&0F,&FF,&0F,&0F,&FF,&FF
+        EQUB &0F,&CF,&3F,&0F,&8F,&7F,&0F,&CF,&3F,&0F,&FF,&FF,&0F,&0F,&FF,&0F
+        EQUB &FF,&0F,&0F,&3F,&CF,&0F,&FF,&0F,&0F,&FF,&0F,&9F,&6F,&0F,&FF,&0F
+        EQUB &0F,&FF,&11,&00,&00,&FF,&0F,&FF,&0F,&3F,&CF,&0F,&7F,&8F,&3F,&1F
+        EQUB &1F,&CF,&77,&11,&FF,&0F,&EF,&1F,&CF,&3F,&0F,&EF,&1F,&CF,&77,&99
+        EQUB &CC,&4C,&CC,&FF,&0F,&1F,&EF,&0F,&8F,&6F,&1F,&CF,&3F,&0F,&FF,&FF
+        EQUB &0F,&FF,&0F,&FF,&FF,&0F,&FF,&0F,&FF,&0F,&FF,&FF,&0F,&8F,&7F,&0F
+        EQUB &3F,&4F,&8F,&3F,&CF,&0F,&FF,&77,&DD,&CC,&00,&11,&11,&33,&67,&47
+        EQUB &CF,&9F,&9F,&9F,&AF,&EF,&23,&23,&33,&11,&00,&33,&CF,&FF,&00,&77
+        EQUB &FC,&FB,&FB,&FC,&7F,&0F,&9F,&9F,&AF,&3F,&2F,&3F,&1F,&0F,&0F,&0F
+        EQUB &8F,&FF,&1F,&8F,&FF,&00,&BB,&FE,&BF,&BF,&FE,&BF,&AF,&1F,&1F,&EF
+        EQUB &1F,&0F,&1F,&FF,&0F,&0F,&0F,&0F,&FF,&11,&AB,&BB,&11,&DD,&E6,&EA
+        EQUB &FB,&F7,&DF,&0F,&2F,&2F,&BF,&9F,&9F,&8F,&0F,&0F,&0F,&1F,&3F,&EE
+        EQUB &1F,&2F,&FF,&CC,&66,&66,&00,&00,&00,&88,&88,&CC,&4C,&6E,&2E,&2E
+        EQUB &AE,&EE,&88,&88,&88,&00,&00,&88,&6E,&EE,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&11,&11,&33,&32,&32,&32,&32,&32,&33,&11,&11,&11
+        EQUB &00,&00,&00,&77,&FC,&F9,&F9,&FD,&75,&EF,&8F,&FF,&00,&00,&00,&11
+        EQUB &33,&32,&76,&74,&FF,&CF,&CF,&C7,&C7,&E7,&F7,&C4,&C4,&C4,&E6,&E2
+        EQUB &F3,&F9,&FF,&23,&EF,&EB,&E3,&FF,&11,&BB,&EF,&CF,&EF,&BB,&00,&33
+        EQUB &EF,&CF,&F3,&E6,&CC,&88,&88,&88,&7F,&7C,&7E,&FB,&FB,&F9,&FB,&EB
+        EQUB &FB,&74,&23,&EF,&0F,&0F,&0F,&0F,&0F,&0F,&8F,&FF,&6E,&3F,&3E,&FF
+        EQUB &00,&FF,&1F,&1F,&FF,&00,&00,&00,&11,&33,&EF,&E3,&E7,&FD,&FD,&F9
+        EQUB &FD,&7D,&FD,&E2,&4C,&7F,&0F,&0F,&1F,&1F,&1F,&1F,&1F,&FF,&77,&FC
+        EQUB &F1,&FF,&00,&00,&00,&00,&00,&00,&00,&00,&EE,&2E,&2E,&2E,&2E,&6E
+        EQUB &88,&00,&00,&00,&00,&00,&00,&88,&CC,&EA,&EA,&F3,&F2,&F3,&F3,&F3
+        EQUB &F3,&E7,&EF,&33,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00
+        EQUB &00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&00,&CC,&E6,&E2
+        EQUB &E2,&E6,&C4,&EE,&2E,&EE,&EA,&EA,&FB,&F9,&FC,&77,&75,&75,&FD,&F9
+        EQUB &F3,&EE,&EA,&FB,&EB,&F9,&FC,&FF,&AE,&AE,&FF,&FC,&F9,&EB,&FB,&EA
+        EQUB &75,&FD,&3F,&9F,&D7,&DF,&57,&57,&DF,&D7,&9F,&3F,&FD,&75,&FF,&F8
+        EQUB &FC,&77,&23,&23,&33,&DD,&BF,&FC,&F9,&EB,&FB,&EA,&FF,&F1,&F3,&EE
+        EQUB &4C,&6E,&3F,&9F,&9F,&9F,&3F,&7D,&FD,&75,&00,&33,&76,&FC,&F8,&F8
+        EQUB &F8,&F8,&F8,&F8,&F8,&FC,&76,&33,&00,&00,&00,&00,&33,&FF,&F8,&F0
+        EQUB &F3,&F3,&F3,&F3,&F3,&F3,&F3,&F3,&F3,&F0,&F8,&FF,&33,&76,&FC,&FF
+        EQUB &FF,&F0,&F0,&FF,&FF,&F0,&F0,&FE,&FE,&F0,&F0,&F0,&F0,&F0,&F0,&F1
+        EQUB &F3,&EE,&88,&FF,&F0,&F0,&FB,&FB,&F3,&F3,&F3,&F3,&F3,&F3,&F3,&F0
+        EQUB &F0,&FF,&88,&00,&00,&00,&FF,&F0,&F0,&FF,&FF,&F1,&F1,&FF,&FE,&F7
+        EQUB &F3,&F1,&F0,&F0,&FF,&00,&00,&00,&00,&FF,&F0,&F0,&F0,&F9,&F9,&F9
+        EQUB &F1,&F1,&F1,&F9,&F9,&F0,&F0,&FF,&00,&00,&00,&00,&FF,&F0,&F0,&FF
+        EQUB &FF,&F8,&F8,&FF,&FF,&F8,&F8,&F8,&F0,&F0,&FF,&00,&00,&00,&00,&FF
+        EQUB &F0,&F0,&F8,&FC,&FC,&FC,&FC,&FC,&FC,&FC,&FC,&F0,&F0,&FF,&00,&00
+        EQUB &00,&00,&FF,&F0,&F0,&FC,&FC,&FD,&FF,&FF,&FF,&FD,&FC,&FC,&F0,&F0
+        EQUB &FF,&00,&00,&00,&00,&FF,&F0,&F0,&F6,&FE,&FC,&F8,&F0,&F8,&FC,&FE
+        EQUB &F6,&F0,&F0,&FF,&00,&00,&00,&00,&FF,&F0,&F0,&F3,&F3,&F3,&F3,&F3
+        EQUB &F3,&F0,&F3,&F3,&F0,&F0,&FF,&00,&00,&00,&00,&CC,&F7,&F1,&F0,&F0
+        EQUB &F0,&F0,&F0,&F0,&F0,&F0,&F0,&F1,&F7,&CC,&00,&00,&00,&00,&00,&00
+        EQUB &88,&CC,&C4,&C4,&C4,&C4,&C4,&C4,&C4,&CC,&88,&00,&00,&00,&00,&00
+        EQUB &00,&11,&00,&00,&00,&11,&11,&33,&76,&74,&74,&74,&76,&33,&11,&FF
+        EQUB &FF,&FF,&FF,&F9,&F9,&F0,&F0,&F0,&F0,&F0,&F0,&F0,&F0,&FF,&00,&88
+        EQUB &00,&00,&00,&88,&88,&CC,&E6,&E2,&E2,&E2,&E6,&CC,&88,&00,&00,&FF
+        EQUB &F8,&FF,&00,&00,&00,&00,&FF,&F8,&FF,&00,&00,&F9,&F9,&F9,&FF,&F9
+        EQUB &F9,&F9,&F9,&F9,&F9,&FF,&F9,&F9,&F9,&00,&00,&FF,&F1,&FF,&00,&00
+        EQUB &00,&00,&FF,&F1,&FF,&00,&00,&11,&00,&00,&00,&11,&11,&32,&75,&66
+        EQUB &88,&00,&88,&DD,&77,&FB,&F1,&E2,&CC,&00,&00,&00,&88,&CC,&EE,&88
+        EQUB &00,&88,&CC,&44,&00,&00,&00,&11,&67,&8F,&8F,&8F,&8F,&8F,&67,&11
+        EQUB &00,&FF,&0F,&3C,&1E,&0F,&0F,&0F,&0F,&FF,&66,&88,&6E,&1F,&97,&97
+        EQUB &1F,&1F,&6E,&88,&00,&0A,&FD,&08,&01,&FD,&00,&0A,&FD,&08,&02,&FD
+        EQUB &00,&0A,&FD,&08,&03,&FD,&00,&0A,&FD,&08,&04,&FD,&00,&09,&FD,&08
+        EQUB &05,&FD,&00,&09,&FD,&08,&06,&FD,&00,&09,&FD,&08,&07,&FD,&00,&09
+        EQUB &FD,&08,&08,&FD,&00,&0C,&FD,&09,&04,&FD,&00,&0B,&FD,&09,&08,&FD
+        EQUB &00,&15,&00,&00,&15,&03,&00,&15,&00,&00,&3E,&03,&00,&15,&00,&00
+        EQUB &3F,&03,&00,&15,&00,&00,&40,&03,&00,&15,&00,&00,&41,&03,&00,&15
+        EQUB &00,&00,&42,&03,&00,&18,&00,&00,&1A,&01,&00,&1B,&04,&00,&1C,&07
+        EQUB &00,&1B,&0A,&00,&1C,&0D,&00,&19,&10,&00,&18,&00,&00,&1A,&01,&00
+        EQUB &1A,&04,&00,&1B,&07,&00,&1B,&0A,&00,&1C,&0D,&00,&1B,&10,&00,&1A
+        EQUB &13,&00,&19,&16,&00,&18,&00,&00,&1B,&01,&00,&1C,&04,&00,&1C,&07
+        EQUB &00,&1A,&0A,&00,&1B,&0D,&00,&1A,&10,&00,&1A,&13,&00,&19,&16,&00
+        EQUB &18,&00,&00,&1A,&01,&00,&1A,&04,&00,&1A,&07,&00,&1B,&0A,&00,&1A
+        EQUB &0D,&00,&1C,&10,&00,&1A,&13,&00,&1A,&16,&00,&1B,&19,&00,&1A,&1C
+        EQUB &00,&1A,&1F,&00,&19,&22,&00,&18,&00,&00,&1C,&01,&00,&1B,&04,&00
+        EQUB &19,&07,&00,&18,&00,&00,&1A,&01,&00,&19,&04,&00,&1F,&00,&00,&20
+        EQUB &00,&06,&21,&00,&14,&1F,&00,&00,&20,&00,&06,&20,&00,&14,&21,&00
+        EQUB &22,&1F,&00,&00,&20,&00,&06,&20,&00,&14,&20,&00,&22,&21,&00,&30
+        EQUB &1F,&00,&00,&20,&00,&06,&20,&00,&14,&20,&00,&22,&20,&00,&30,&21
+        EQUB &00,&3E,&11,&00,&00,&11,&04,&00,&11,&00,&00,&4E,&04,&00,&11,&00
+        EQUB &00,&4F,&04,&00,&11,&00,&00,&50,&04,&00,&11,&00,&00,&51,&04,&00
+        EQUB &11,&00,&00,&52,&04,&00,&00,&00,&00,&00,&00,&19,&00,&00,&00,&54
+        EQUB &00,&19,&00,&00,&00,&55,&00,&19,&24,&00,&00,&24,&00,&0E,&24,&00
+        EQUB &00,&57,&00,&0E,&24,&00,&00,&58,&00,&0E,&24,&00,&00,&59,&00,&0E
+        EQUB &22,&03,&1A
+; =============================================================================
+; &3000+ - transient startup only
+; =============================================================================
+; This routine is needed only until it jumps to &0380.  Frak subsequently uses
+; &3000 upward as display memory, so the startup segment is intentionally disposable.
+ORG &3000
+start:
 
-CleanStartup:
+GameInitialise:
         SEI
         LDX #&A2
         TXS
@@ -3701,10 +3669,7 @@ Startup_ClearZeroPage:
         LDA #&30
         STA RandomState
 
-; Select the cassette filing system before overwriting DFS low-memory workspace.
-        LDA #&8C
-        LDX #&03
-        JSR OSBYTE
+; *TAPE is selected by boot-loader @basic metadata before segment installation.
 
         LDA #&40
         STA &0D00
@@ -3714,121 +3679,6 @@ Startup_ClearMosWorkspace:
         STA &02A1,Y
         DEY
         BPL Startup_ClearMosWorkspace
-
-; -----------------------------------------------------------------------------
-; Install only the runtime ranges which survive in the final game memory map.
-; The source image itself is relocatable; all source addresses below are labels.
-; -----------------------------------------------------------------------------
-        LDA #<Runtime_0B00_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_0B00_Source
-        STA LoaderSourceHi
-        LDA #<QueueDescriptors
-        STA LoaderDestLo
-        LDA #>QueueDescriptors
-        STA LoaderDestHi
-        LDX #<(Runtime_0B00_SourceEnd-Runtime_0B00_Source)
-        LDA #>(Runtime_0B00_SourceEnd-Runtime_0B00_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
-
-; The original protected loader copied this block through runtime &21EB, but
-; &1FFD-&21EB was immediately overwritten by the sprite block.  Copy only the
-; bytes that actually survive: &0D01-&1FFC.  The final four bytes come from the
-; start of Runtime_01A4_Source, exactly as in the released runtime image.
-        LDA #<Runtime_0D01_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_0D01_Source
-        STA LoaderSourceHi
-        LDA #<WaitForTickChange
-        STA LoaderDestLo
-        LDA #>WaitForTickChange
-        STA LoaderDestHi
-        LDX #<((Runtime_01A4_Source+4)-Runtime_0D01_Source)
-        LDA #>((Runtime_01A4_Source+4)-Runtime_0D01_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
-
-        LDA #<Runtime_1FFD_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_1FFD_Source
-        STA LoaderSourceHi
-        LDA #<SpriteXOffsets
-        STA LoaderDestLo
-        LDA #>SpriteXOffsets
-        STA LoaderDestHi
-        LDX #<(Runtime_1FFD_SourceEnd-Runtime_1FFD_Source)
-        LDA #>(Runtime_1FFD_SourceEnd-Runtime_1FFD_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
-
-        LDA #<Runtime_0507_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_0507_Source
-        STA LoaderSourceHi
-        LDA #<SoundStream
-        STA LoaderDestLo
-        LDA #>SoundStream
-        STA LoaderDestHi
-        LDX #<(Runtime_0507_SourceEnd-Runtime_0507_Source)
-        LDA #>(Runtime_0507_SourceEnd-Runtime_0507_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
-
-        LDA #<Runtime_0880_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_0880_Source
-        STA LoaderSourceHi
-        LDA #<HighScores
-        STA LoaderDestLo
-        LDA #>HighScores
-        STA LoaderDestHi
-        LDX #<(Runtime_0880_SourceEnd-Runtime_0880_Source)
-        LDA #>(Runtime_0880_SourceEnd-Runtime_0880_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
-
-        LDA #<Runtime_0A00_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_0A00_Source
-        STA LoaderSourceHi
-        LDA #<Mode1Masks
-        STA LoaderDestLo
-        LDA #>Mode1Masks
-        STA LoaderDestHi
-        LDX #<(Runtime_0A00_SourceEnd-Runtime_0A00_Source)
-        LDA #>(Runtime_0A00_SourceEnd-Runtime_0A00_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
-
-; Runtime &01A4-&01FF comprises the 88-byte block below plus the first four
-; bytes of the title block. This is a genuine final-runtime overlap from the
-; original layout; it is retained without copying into MOS vectors.
-        LDA #<Runtime_01A4_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_01A4_Source
-        STA LoaderSourceHi
-        LDA #<&01A4
-        STA LoaderDestLo
-        LDA #>&01A4
-        STA LoaderDestHi
-        LDX #<((Runtime_0380_Source+4)-Runtime_01A4_Source)
-        LDA #>((Runtime_0380_Source+4)-Runtime_01A4_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
-
-        LDA #<Runtime_0380_Source
-        STA LoaderSourceLo
-        LDA #>Runtime_0380_Source
-        STA LoaderSourceHi
-        LDA #<RuntimeGameEntry
-        STA LoaderDestLo
-        LDA #>RuntimeGameEntry
-        STA LoaderDestHi
-        LDX #<(Runtime_0380_SourceEnd-Runtime_0380_Source)
-        LDA #>(Runtime_0380_SourceEnd-Runtime_0380_Source)
-        STA LoaderLengthHi
-        JSR CopyRuntimeBlock
 
 ; Initialise the four original sound/envelope OSWORD blocks.
         LDX #<StartupOSWORD_Block0
@@ -3957,33 +3807,15 @@ Startup_ScanSoundStream:
         STA SYSTEM_VIA_IER
         JMP RuntimeGameEntry
 
-; Startup-only block copier.  X = low byte of count, LoaderLengthHi = high byte.
-; Source/destination pointers live in &00-&03 only until the sprite-table
-; pointers above replace them.
-CopyRuntimeBlock:
-        LDY #&00
-CopyRuntimeBlock_Loop:
-        LDA (LoaderSourceLo),Y
-        STA (LoaderDestLo),Y
-        TXA
-        BNE CopyRuntimeBlock_NoBorrow
-        DEC LoaderLengthHi
-CopyRuntimeBlock_NoBorrow:
-        DEX
-        TXA
-        ORA LoaderLengthHi
-        BEQ CopyRuntimeBlock_Done
-        INY
-        BNE CopyRuntimeBlock_Loop
-        INC LoaderSourceHi
-        INC LoaderDestHi
-        JMP CopyRuntimeBlock_Loop
-CopyRuntimeBlock_Done:
-        RTS
-
-
+StartupOSWORD_Block0:
+        EQUB &01,&01,&00,&00,&00,&01,&01,&01,&64,&F6,&FE,&FC,&64,&3C    ; original &4653
+StartupOSWORD_Block1:
+        EQUB &02,&01,&00,&00,&00,&01,&01,&01,&64,&9C,&9C,&9C,&64,&00    ; original &4661
+StartupOSWORD_Block2:
+        EQUB &03,&82,&00,&02,&FD,&02,&06,&04,&3C,&07,&F2,&F2,&3C,&6E    ; original &466F
+StartupOSWORD_Block3:
+        EQUB &04,&82,&00,&FC,&02,&03,&03,&28,&28,&FC,&FB,&FB,&78,&74    ; original &467D
 
 EndOfImage:
-; Expected exact size: &2D4B bytes (11595). At the default origin &2F00 this
-; occupies &2F00-&5C4A inclusive and must match the verified baseline hash.
-; VERIFY.txt contains the canonical SHA-256 for the runnable payload.
+; End of emitted startup segment.
+
