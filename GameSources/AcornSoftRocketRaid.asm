@@ -24,6 +24,7 @@
 ; creator) makes the per-game startup presentation part of the game's source.
 ;
 ; @basic MODE 7
+; @basic *TAPE
 ; @basic VDU 23;10,32,0;0;0;
 ; @basic VDU 31,0,0,129,157,131,141,31,9,0
 ; @basic PRINT "Acornsoft Rocket Raid"
