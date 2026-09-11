@@ -2,8 +2,13 @@
 ; ZALAGA - WEB-ASSEMBLER BOOTABLE RECONSTRUCTION V14
 ; BBC Micro / NMOS 6502
 ;
-; BBC 6502 Web Assembler boot-disk setup
-; --------------------------------------
+; BBC 6502 Web Assembler boot-disk / jsbeeb setup
+; -----------------------------------------------
+; jsbeeb host keyboard remapping used by the assembler's Run in jsbeeb command.
+; These are source metadata comments only and do not alter the assembled binary.
+; @jsbeeb-key Z=CAPSLOCK
+; @jsbeeb-key X=CTRL
+;
 ; Zalaga occupies RAM used by DFS.  The generated BASIC loader must release DFS
 ; before its high-memory mover installs the image at &0400.
 ; @basic *TAPE
