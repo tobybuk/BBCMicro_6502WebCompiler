@@ -5046,5 +5046,3 @@ EnvelopeCollectDefinition:
 
 EndOfImage:
 ; End of emitted startup segment.
-
-s
