@@ -25,11 +25,11 @@
 ; 1. Open this file.
 ; 2. Assemble.
 ; 3. Save boot disk.
-; 4. Use entry symbol: RunEntry
+; 4. Boot entry is selected automatically as: start (&2F00)
 ; 5. Suggested DFS title/program name: FRAK / FRAK
 ;
 ; The assembler's generated boot loader selects MODE 7 and relocates this image
-; to &2F00 before entering RunEntry.  The image ends at &5C4A, safely below its
+; to &2F00 before entering start/RunEntry. The image ends at &5C4A, safely below its
 ; temporary mover at &7AE0.
 ;
 ; Original loader compatibility setting retained:
@@ -37,7 +37,7 @@
 ;
 ; Known runtime symbols (destinations after Bootstrap relocation)
 ; -----------------------------------------------------------------------------
-GameEntry             = &0380
+RuntimeGameEntry      = &0380
 ObjectX               = &0368
 ObjectY               = &03E3
 ObjectSprite          = &045E
@@ -74,6 +74,15 @@ TYPE_BALLOON          = &27
 TYPE_TROGG_0          = &34
 
 ORG &2F00
+
+; -----------------------------------------------------------------------------
+; Boot/load entry.
+;
+; IMPORTANT: the web assembler prefers a symbol named "start" for its boot-disk
+; entry-point default.  &0380 is only the INTERNAL entry reached after Bootstrap
+; has relocated the game; it must not be used as the DFS/BASIC loader entry.
+; -----------------------------------------------------------------------------
+start:
 
 ; -----------------------------------------------------------------------------
 ; Deprotected entry. These instructions are symbolic already; bytes &2F00-&2F0C
