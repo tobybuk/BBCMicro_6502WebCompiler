@@ -468,6 +468,7 @@
         <button id="saveSourceBtn">Save source</button>
         <button id="saveSourceAsBtn">Save As…</button>
         <button class="primary" id="assembleBtn">Assemble</button>
+        <button class="primary" id="feelingLuckyBtn" title="Assemble, build a bootable SSD and run it immediately in jsbeeb">Feeling Lucky</button>
         <button id="saveBinBtn" disabled>Save binary</button>
         <button id="saveDiskBtn" disabled>Save boot disk…</button>
         <button id="saveListingBtn" disabled>Save listing</button>
@@ -2747,6 +2748,66 @@ message:
                 }
             }
 
+            async function feelingLucky() {
+                // Open the emulator tab immediately from the user's click. Opening it after
+                // assembly/ZIP creation risks being blocked by the browser as a popup.
+                const emulatorWindow = window.open('about:blank', '_blank');
+
+                if (!emulatorWindow) {
+                    alert('The browser blocked the jsbeeb window. Allow pop-ups for this assembler and try again.');
+                    return;
+                }
+
+                const button = byId('feelingLuckyBtn');
+                const originalText = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Building…';
+
+                try {
+                    // Always compile what is in the editor right now. Never reuse an older
+                    // successful lastResult for the one-click test path.
+                    await assemble();
+
+                    if (!lastResult?.success) {
+                        emulatorWindow.close();
+                        return;
+                    }
+
+                    // Populate exactly the same defaults as Save boot disk… without opening
+                    // the configuration dialog, then use the normal SSD builder.
+                    byId('diskTitle').value = stem(currentFile).toUpperCase().slice(0, 12) || '6502 PROGRAM';
+                    byId('programName').value = stem(currentFile).replace(/[^A-Za-z0-9!_-]/g, '').toUpperCase().slice(0, 7) || 'PROGRAM';
+                    byId('bootOrigin').value = hex4(lastResult.origin);
+                    byId('entryPoint').value = suggestedEntrySymbol(lastResult);
+
+                    const setupStatements = lastResult.basicStatements || [];
+                    byId('bootBasicCount').value =
+                        `${setupStatements.length} @basic line${setupStatements.length === 1 ? '' : 's'}`;
+
+                    const keyMappings = lastResult.jsbeebKeyMappings || [];
+                    byId('bootJsBeebKeyCount').value =
+                        `${keyMappings.length} mapping${keyMappings.length === 1 ? '' : 's'}`;
+
+                    if (lastResult.jsbeebKeyMetadataError) {
+                        throw new Error(lastResult.jsbeebKeyMetadataError);
+                    }
+
+                    const disk = buildBootDiskFromDialog();
+                    const url = await makeJsBeebRunUrl(
+                        disk.image,
+                        lastResult.jsbeebKeyMappings || []
+                    );
+
+                    emulatorWindow.location.replace(url);
+                } catch (error) {
+                    emulatorWindow.close();
+                    alert(`Feeling Lucky failed.\n\n${error.message}`);
+                } finally {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+
             function saveListing() {
                 if (!lastResult?.success) {
                     return;
@@ -2802,6 +2863,7 @@ message:
             byId('saveSourceBtn').onclick = saveSource;
             byId('saveSourceAsBtn').onclick = saveSourceAs;
             assembleButton.onclick = assemble;
+            byId('feelingLuckyBtn').onclick = feelingLucky;
             saveBinaryButton.onclick = saveBinary;
             saveDiskButton.onclick = openBootDialog;
             saveListingButton.onclick = saveListing;
