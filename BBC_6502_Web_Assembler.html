@@ -165,11 +165,42 @@
             background: #0e1115
         }
 
+        #lineNumbers {
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 58px;
+            overflow: hidden;
+            background: #0a0d11;
+            border-right: 1px solid var(--border);
+            color: #66717f;
+            font: 13.5px/1.48 var(--mono);
+            text-align: right;
+            user-select: none;
+            pointer-events: none;
+            box-sizing: border-box;
+            z-index: 2
+        }
+
+        #lineNumbersInner {
+            margin: 0;
+            padding: 12px 9px 12px 4px;
+            font: inherit;
+            line-height: inherit;
+            white-space: pre;
+            box-sizing: border-box
+        }
+
         #editor {
             position: absolute;
-            inset: 0;
-            width: 100%;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 58px;
+            width: calc(100% - 58px);
             height: 100%;
+            box-sizing: border-box;
             resize: none;
             border: 0;
             outline: 0;
@@ -484,7 +515,7 @@
     <div id="workspace">
         <section class="editorPane">
             <div class="filebar"><label>Source</label><select id="fileSelect"></select><span id="dirty">modified</span></div>
-            <div class="editorWrap"><textarea id="editor" spellcheck="false" aria-label="6502 source editor"></textarea></div>
+            <div class="editorWrap"><div id="lineNumbers" aria-hidden="true"><pre id="lineNumbersInner">1</pre></div><textarea id="editor" spellcheck="false" aria-label="6502 source editor"></textarea></div>
             <div class="statusbar"><span id="cursorPos">Ln 1, Col 1</span><span id="sourceStats"></span><span>Ctrl+Enter: assemble</span><span>Ctrl+S: save source</span><span>Ctrl+Shift+S: Save As…</span></div>
         </section>
         <section class="resultsPane">
@@ -1103,6 +1134,7 @@ message:
             }
 
             const editor = byId('editor');
+            const lineNumbersInner = byId('lineNumbersInner');
             const fileSelect = byId('fileSelect');
             const dirtyIndicator = byId('dirty');
             const openInput = byId('openInput');
@@ -1135,19 +1167,19 @@ OSWRCH = &FFEE
 ORG &1900
 
 start:
-        LDX #0
+            LDX #0
 .loop:
-        LDA message,X
-        BEQ done
-        JSR OSWRCH
-        INX
-        BNE .loop
+            LDA message,X
+            BEQ done
+            JSR OSWRCH
+            INX
+            BNE .loop
 .done:
-        RTS
+            RTS
 
 message:
-        EQUS "HELLO FROM 6502!"
-        EQUB 13,10,0
+            EQUS "HELLO FROM 6502!"
+            EQUB 13,10,0
 `;
 
             function setDirty(value) {
@@ -1440,6 +1472,7 @@ message:
 
                 currentFile = name;
                 editor.value = files.get(name) || '';
+                updateLineNumbers();
                 applySourceMetadata(editor.value);
                 refreshFileSelect();
                 setDirty(false);
@@ -1454,6 +1487,7 @@ message:
                 files = new Map([['untitled.asm', sample]]);
                 currentFile = 'untitled.asm';
                 editor.value = sample;
+                updateLineNumbers();
                 refreshFileSelect();
                 setDirty(false);
                 lastResult = null;
@@ -1480,6 +1514,7 @@ message:
 
                 currentFile = sourceFile || [...files.keys()][0];
                 editor.value = files.get(currentFile);
+                updateLineNumbers();
                 applySourceMetadata(editor.value);
 
                 refreshFileSelect();
@@ -1571,6 +1606,7 @@ message:
 
                     currentFile = requested || preferredMain || names[0];
                     editor.value = files.get(currentFile) || '';
+                    updateLineNumbers();
                     applySourceMetadata(editor.value);
                     refreshFileSelect();
                     setDirty(false);
@@ -1787,41 +1823,41 @@ message:
 
                 if (result.success) {
                     html += `
-            <div class="summary">
-              <div class="key">Status</div><div class="good">BUILD OK</div>
-              <div class="key">Origin</div><div>${hex4(result.origin)}</div>
-              <div class="key">End</div><div>${hex4(result.end)}</div>
-              <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
-              <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
-              <div class="key">Segments</div><div>${result.segments.length}</div>
-              <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
-              <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
-              <div class="key">Boot loading</div><div>${(result.relocations || []).length ? `${result.relocations.length} @relocate range${result.relocations.length === 1 ? '' : 's'}` : (result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment')}</div>
-              <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
-              <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
-              ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
-            </div>`;
+                <div class="summary">
+                  <div class="key">Status</div><div class="good">BUILD OK</div>
+                  <div class="key">Origin</div><div>${hex4(result.origin)}</div>
+                  <div class="key">End</div><div>${hex4(result.end)}</div>
+                  <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
+                  <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
+                  <div class="key">Segments</div><div>${result.segments.length}</div>
+                  <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
+                  <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
+                  <div class="key">Boot loading</div><div>${(result.relocations || []).length ? `${result.relocations.length} @relocate range${result.relocations.length === 1 ? '' : 's'}` : (result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment')}</div>
+                  <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
+                  <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
+                  ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
+                </div>`;
                 } else {
                     html += `
-            <div class="summary">
-              <div class="key">Status</div><div class="bad">BUILD FAILED</div>
-              <div class="key">Errors</div><div>${result.errors.length}</div>
-            </div>`;
+                <div class="summary">
+                  <div class="key">Status</div><div class="bad">BUILD FAILED</div>
+                  <div class="key">Errors</div><div>${result.errors.length}</div>
+                </div>`;
                 }
 
                 for (const error of result.errors) {
                     html += `
-            <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
-              <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
-              ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
-            </div>`;
+                <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
+                  <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
+                  ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
+                </div>`;
                 }
 
                 for (const warning of result.warnings) {
                     html += `
-            <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
-              <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
-            </div>`;
+                <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
+                  <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
+                </div>`;
                 }
 
                 buildContent.innerHTML = html;
@@ -1850,11 +1886,11 @@ message:
                     const segmentName = `${stem(currentFile)}_${segment.start.toString(16).padStart(4, '0')}_${segment.end.toString(16).padStart(4, '0')}.bin`;
 
                     row.innerHTML = `
-            <td>${index + 1}</td>
-            <td class="addr">${hex4(segment.start)}</td>
-            <td class="addr">${hex4(segment.end)}</td>
-            <td>${segment.bytes.length.toLocaleString()}</td>
-            <td class="segmentActions"><button>Save</button></td>`;
+                <td>${index + 1}</td>
+                <td class="addr">${hex4(segment.start)}</td>
+                <td class="addr">${hex4(segment.end)}</td>
+                <td>${segment.bytes.length.toLocaleString()}</td>
+                <td class="segmentActions"><button>Save</button></td>`;
 
                     row.querySelector('button').onclick = () => {
                         downloadBlob(segment.bytes, segmentName);
@@ -1881,8 +1917,8 @@ message:
                         const row = document.createElement('tr');
                         row.className = 'symbolRow';
                         row.innerHTML = `
-              <td class="addr">${hex4(value & 0xFFFF)}</td>
-              <td>${escapeHtml(name)}</td>`;
+                  <td class="addr">${hex4(value & 0xFFFF)}</td>
+                  <td>${escapeHtml(name)}</td>`;
                         row.onclick = () => jumpToSymbol(name);
                         body.appendChild(row);
                     });
@@ -2842,6 +2878,22 @@ message:
                 });
             }
 
+            function updateLineNumbers() {
+                const lineCount = editor.value.split('\n').length;
+                const numbers = new Array(lineCount);
+
+                for (let line = 1; line <= lineCount; line++) {
+                    numbers[line - 1] = String(line);
+                }
+
+                lineNumbersInner.textContent = numbers.join('\n');
+                syncLineNumberScroll();
+            }
+
+            function syncLineNumberScroll() {
+                lineNumbersInner.style.transform = `translateY(${-editor.scrollTop}px)`;
+            }
+
             function updateCursor() {
                 const position = editor.selectionStart;
                 const beforeCursor = editor.value.slice(0, position);
@@ -2853,6 +2905,82 @@ message:
                 byId('sourceStats').textContent =
                     `${editor.value.split('\n').length.toLocaleString()} lines  ` +
                     `${editor.value.length.toLocaleString()} chars`;
+            }
+
+            function handleEditorTab(event) {
+                if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                const start = editor.selectionStart;
+                const end = editor.selectionEnd;
+                const value = editor.value;
+                const selectionContainsNewline = value.slice(start, end).includes('\n');
+
+                // With no multi-line selection, Tab inserts a real tab character.
+                if (start === end || !selectionContainsNewline) {
+                    if (event.shiftKey) {
+                        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
+                        const prefix = value.slice(lineStart, start);
+                        const removable = prefix.match(/(?:\t| {1,4})$/);
+
+                        if (removable) {
+                            const removeStart = start - removable[0].length;
+                            editor.setRangeText('', removeStart, start, 'end');
+                        }
+                    } else {
+                        editor.setRangeText('\t', start, end, 'end');
+                    }
+
+                    editor.dispatchEvent(new Event('input', { bubbles: true }));
+                    return;
+                }
+
+                // For a multi-line selection, Tab/Shift+Tab indents or unindents every line.
+                const firstLineStart = value.lastIndexOf('\n', start - 1) + 1;
+                let selectionEnd = end;
+                if (selectionEnd > start && value[selectionEnd - 1] === '\n') {
+                    selectionEnd--;
+                }
+                const lastLineEndIndex = value.indexOf('\n', selectionEnd);
+                const blockEnd = lastLineEndIndex === -1 ? value.length : lastLineEndIndex;
+                const block = value.slice(firstLineStart, blockEnd);
+                const lines = block.split('\n');
+                const changedLines = [];
+                let removedBeforeStart = 0;
+                let totalDelta = 0;
+
+                for (let index = 0; index < lines.length; index++) {
+                    const line = lines[index];
+
+                    if (event.shiftKey) {
+                        const match = line.match(/^(?:\t| {1,4})/);
+                        const removed = match ? match[0].length : 0;
+                        changedLines.push(line.slice(removed));
+                        totalDelta -= removed;
+                        if (index === 0) {
+                            removedBeforeStart = Math.min(removed, start - firstLineStart);
+                        }
+                    } else {
+                        changedLines.push('\t' + line);
+                        totalDelta += 1;
+                    }
+                }
+
+                const replacement = changedLines.join('\n');
+                editor.setRangeText(replacement, firstLineStart, blockEnd, 'select');
+
+                if (event.shiftKey) {
+                    editor.selectionStart = Math.max(firstLineStart, start - removedBeforeStart);
+                    editor.selectionEnd = Math.max(editor.selectionStart, end + totalDelta);
+                } else {
+                    editor.selectionStart = start + 1;
+                    editor.selectionEnd = end + lines.length;
+                }
+
+                editor.dispatchEvent(new Event('input', { bubbles: true }));
             }
 
             // Toolbar actions.
@@ -2877,8 +3005,11 @@ message:
             // Editor state.
             editor.addEventListener('input', () => {
                 setDirty(true);
+                updateLineNumbers();
                 updateCursor();
             });
+            editor.addEventListener('scroll', syncLineNumberScroll);
+            editor.addEventListener('keydown', handleEditorTab);
             editor.addEventListener('click', updateCursor);
             editor.addEventListener('keyup', updateCursor);
 
