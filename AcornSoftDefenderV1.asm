@@ -61,6 +61,14 @@
 ; stores a 32-bit value little-endian, initialising &80..&83 to &CE,&AD,&02,&2D.
 ; @basic LET !&80=&2D02ADCE
 ;
+; MODIFICATION-FRIENDLY SOURCE
+; ----------------------------
+; Internal code/data addresses are represented by labels. The original runtime
+; addresses remain in comments for forensic reference only. Genuine external
+; addresses (MOS/hardware, zero page and fixed BBC workspaces) remain absolute.
+; This means normal insertions/deletions in the game image can move subsequent
+; routines and tables without leaving stale internal addresses behind.
+;
 ; FINAL STATUS
 ; ------------
 ; Every byte of $.Defend2 is represented by this source.  All reachable game
@@ -172,144 +180,17 @@ UnitRadarPtrHi   = &0626
 UnitAnim         = &0646
 UnitRadarDot     = &066B
 
-; Four player laser beams
-LaserActive      = &2EDC
-LaserTailPhase   = &2EE0
-LaserHeadPhase   = &2EE4
-LaserX           = &2EE8
-LaserY           = &2EEC
-LaserTailPtrLo   = &2EF0
-LaserTailPtrHi   = &2EF4
-LaserHeadPtrLo   = &2EF8
-LaserHeadPtrHi   = &2EFC
-
 ; ---------------------------------------------------------------------------
-; V1 global state at &2F00
+; Internal game data
 ; ---------------------------------------------------------------------------
-OldScreenOriginLo       = &2F00
-OldScreenOriginHi       = &2F01
-ScrollOffsetLo          = &2F02
-ScrollOffsetHi          = &2F03
-HighScoreBCD            = &2F04       ; 3 packed-BCD bytes, low..high
-ScreenOriginLo          = &2F08
-ScreenOriginHi          = &2F09
-WorldWindowX            = &2F0A
-SurfaceWindowEdges      = &2F0C       ; two bytes: left/right terrain cursors
-TabKeyLatch             = &2F0E
-BackgroundPalette       = &2F0F
-FrameCounterLo          = &2F10
-FrameCounterHi          = &2F11
-GeneralCount            = &2F12
-EnemyCount              = &2F13
-SquadDelayHigh          = &2F14
-HumanCount              = &2F15
-LevelBCD                = &2F16
-HumanBonusBCD           = &2F17
-BaitDelayLo             = &2F18
-BaitDelayHi             = &2F19
-NoPlanet                = &2F1A
-LastVSync               = &2F1B
-ShipAccelerationLo      = &2F1C
-ShipAccelerationHi      = &2F1D
-WorldScrollVelocityLo   = &2F1E
-WorldScrollVelocityHi   = &2F1F
-WorldLeftEdgeLo         = &2F20
-WorldLeftEdgeHi         = &2F21
-AlternateUnitIndex      = &2F22
-SpaceKeyLatch           = &2F23
-PlayerDead              = &2F24
-AIBatchSize             = &2F25
-AIBatchCounter          = &2F26
-SpawnSpriteType         = &2F27
-MinScreenX              = &2F28
-MaxScreenX              = &2F29
-WorldWindowDelta        = &2F2A
-EnterKeyLatch           = &2F2B
-ShipScreenX             = &2F2C
-HitchhikerCount         = &2F2D
-DigitScreenPtrLo        = &2F2E
-DigitScreenPtrHi        = &2F2F
-ScoreBCD                = &2F30       ; 3 packed-BCD bytes, low..high
-LeadingZeroState        = &2F33
-FlashPaletteIndex       = &2F34
-FlashPaletteCountdown   = &2F35
-FlashPalettePeriod      = &2F36
-LivesBCD                = &2F37
-SmartBombsBCD           = &2F38
-GameOverStackPointer    = &2F39
-EnemyShotSpeed          = &2F3A
-SmartBombPass2          = &2F3B
-ShipPalette             = &2F3C
-PaletteRotateFrameCount = &2F3D
-PaletteRotateIndex      = &2F3E
-PaletteRotateColours    = &2F3F       ; 3 bytes
-SurfacePalette          = &2F42
-NextLevelStackPointer   = &2F43
-LevelStillSpawning      = &2F44
-VSyncCounter            = &2F45
-
-; ---------------------------------------------------------------------------
-; V1 tables
-; ---------------------------------------------------------------------------
-AIVectorTable     = &2F46       ; 11 little-endian code pointers
-SpawnCount        = &2F5E       ; types 0..7
-XMinInit          = &2F66
-XRangeInit        = &2F6E
-YMinInit          = &2F76
-YRangeInit        = &2F7E
-DXMinInit         = &2F86
-DXRangeInit       = &2F8E
-DYMinInit         = &2F96
-DYRangeInit       = &2F9E
-
-UnusedPreSurfaceData = &286F       ; 81 unreferenced bytes before SurfaceQuadrants
-SurfaceQuadrants  = &28C0       ; 64 packed 2-bit surface-tile selectors
-SurfaceY          = &2900       ; 256 terrain heights
-LaserPixelTable   = &29FF       ; beam XOR pattern/colour sequence
-
-WarpX             = &2A50       ; 8 warp-animation X offsets
-WarpY             = &2A58       ; 8 warp-animation Y offsets
-BlastX            = &2A60       ; 8 explosion X offsets
-BlastY            = &2A68       ; 8 explosion Y offsets
-FlashPalette      = &2A70       ; 8 palette values
-HyperspaceKeys    = &2A78       ; 7 negative-INKEY key codes
-UnusedBeforeSoundBlock = &2A7F  ; one unreferenced byte
-SoundBlock        = &2A80       ; writable OSWORD 7 block
-SoundRepeatTable  = &2A88
-SoundChannelTable = &2A9C
-SoundParam1Table  = &2AB0
-SoundParam2Table  = &2AC4
-SoundParam3Table  = &2AD8
-
-SpriteLengths     = &2B00       ; 11 entries
-SpritePtrLoTable  = &2B0B
-SpritePtrHiTable  = &2B16
-RadarSpriteData   = &2B21       ; 2 bytes per type
-SpriteMaxYTable   = &2B37
-PointsLoTable     = &2B42
-PointsHiTable     = &2B4D
-DoWarpTable       = &2B58
-UnusedPostDoWarpData = &2B63    ; 157 bytes, no runtime references
-
-DigitSprites      = &2C00       ; ten 16-byte digit images
-HumanSprite       = &2CA0
-PodSprite         = &2CA8
-ShipRightSprite   = &2CC0
-ShipLeftSprite    = &2CF0
-SurfaceTiles      = &2D20
-LanderSprite      = &2D2C
-MutantSprite      = &2D4C
-BaiterSprite      = &2D6C
-BomberSprite      = &2D94
-SwarmerSprite     = &2DAC
-ProjectileSprite  = &2DB8
-ShrapnelSprite    = &2DBA
-Score250Sprite    = &2DBE
-Score500Sprite    = &2DCE
-
-UnusedPreStringPointerData = &2FA6 ; 34 bytes, no runtime references
-StringPointerLo   = &2FC8              ; 3 used low-byte entries
-StringPointerHi   = &2FCC              ; 3 used high-byte entries
+; All data that is part of the assembled Defender image is labelled at its
+; point of definition later in this source.  Do not give those objects fixed
+; addresses here: their labels must move automatically if code or data is
+; inserted earlier in the image.
+;
+; The only absolute addresses retained in this definitions section are genuine
+; BBC Micro / MOS / hardware locations and deliberately fixed external
+; workspaces such as the unit arrays at &0400 and zero page.
 
 ; Zero-page scratch (heavily overlaid by subsystem)
 DestPtrLo         = &70
@@ -4408,7 +4289,9 @@ SurfaceQuadrants:
     EQUB &2A,&88,&08,&50,&69,&55,&55,&55 ; &28E7
     EQUB &55,&55,&55,&55,&55,&99,&A9,&99 ; &28EF
     EQUB &99,&19,&50,&40,&14,&54,&55,&55 ; &28F7
-    EQUB &95,&22,&26,&2A,&2C,&28,&24,&20 ; &28FF
+    EQUB &95 ; original &28FF
+SurfaceY:
+    EQUB &22,&26,&2A,&2C,&28,&24,&20 ; original &2900
     EQUB &1C,&19,&19,&19,&19,&19,&19,&19 ; &2907
     EQUB &19,&19,&19,&1A,&1D,&1E,&21,&22 ; &290F
     EQUB &25,&26,&2A,&2D,&2E,&31,&32,&36 ; &2917
@@ -4440,7 +4323,8 @@ SurfaceQuadrants:
     EQUB &35,&34,&30,&2C,&29,&28,&25,&25 ; &29E7
     EQUB &24,&20,&1D,&1D,&1D,&1D,&1D,&1D ; &29EF
     EQUB &1D,&1D,&1D,&1D,&1D,&1D,&1D,&1D ; &29F7
-    EQUB &1E,&00,&20,&00,&10,&10,&20,&10 ; &29FF
+LaserPixelTable:
+    EQUB &1E,&00,&20,&00,&10,&10,&20,&10 ; original &29FF
     EQUB &10,&30,&30,&30,&10,&20,&30,&30 ; &2A07
     EQUB &30,&10,&30,&10,&30,&30,&30,&30 ; &2A0F
     EQUB &20,&30,&30,&30,&30,&10,&00,&30 ; &2A17
@@ -4482,31 +4366,57 @@ SoundBlock:
 SoundRepeatTable:
     EQUB &02,&02,&02,&00,&01,&01,&01 ; &2A88
     EQUB &01,&01,&01,&01,&01,&01,&01,&00 ; &2A8F
-    EQUB &00,&01,&01,&00,&00,&11,&12,&13 ; &2A97
+    EQUB &00,&01,&01,&00,&00 ; original &2A97
+SoundChannelTable:
+    EQUB &11,&12,&13 ; original &2A9C
     EQUB &10,&11,&10,&11,&10,&11,&10,&11 ; &2A9F
     EQUB &10,&11,&10,&12,&12,&11,&10,&13 ; &2AA7
-    EQUB &12,&F6,&F6,&F6,&00,&01,&F4,&02 ; &2AAF
+    EQUB &12 ; original &2AAF
+SoundParam1Table:
+    EQUB &F6,&F6,&F6,&00,&01,&F4,&02 ; original &2AB0
     EQUB &F6,&01,&F6,&01,&F1,&01,&F1,&03 ; &2AB7
-    EQUB &03,&01,&F1,&04,&03,&00,&00,&00 ; &2ABF
+    EQUB &03,&01,&F1,&04,&03 ; original &2ABF
+SoundParam2Table:
+    EQUB &00,&00,&00 ; original &2AC4
     EQUB &00,&E6,&07,&64,&07,&FF,&07,&B4 ; &2AC7
     EQUB &07,&82,&07,&32,&14,&FF,&03,&00 ; &2ACF
-    EQUB &AA,&32,&32,&32,&00,&FF,&1E,&FF ; &2AD7
+    EQUB &AA ; original &2AD7
+SoundParam3Table:
+    EQUB &32,&32,&32,&00,&FF,&1E,&FF ; original &2AD8
     EQUB &0C,&FF,&02,&FF,&11,&FF,&28,&08 ; &2ADF
     EQUB &08,&FF,&3C,&23,&08,&20,&38,&30 ; &2AE7
     EQUB &30,&30,&0D,&35,&31,&30,&20,&21 ; &2AEF
     EQUB &2C,&4D,&31,&39,&47,&3F,&58,&57 ; &2AF7
-    EQUB &80,&30,&20,&20,&14,&18,&0C,&08 ; &2AFF
-    EQUB &18,&02,&28,&28,&C0,&2C,&4C,&6C ; &2B07
-    EQUB &94,&AC,&A0,&A8,&B8,&BE,&CE,&2C ; &2B0F
-    EQUB &2D,&2D,&2D,&2D,&2D,&2C,&2C,&2D ; &2B17
-    EQUB &2D,&2D,&FF,&FF,&8A,&88,&A2,LaserEdgeDelta ; &2B1F
+    EQUB &80 ; original &2AFF
+SpriteLengths:
+    EQUB &30,&20,&20,&14,&18,&0C,&08 ; original &2B00
+    EQUB &18,&02,&28,&28 ; original &2B07
+SpritePtrLoTable:
+    ; Sprite addresses for UnitType 0..10.  Keep these symbolic so sprite data
+    ; can move when the source is edited.
+    EQUB <ShipRightSprite,<LanderSprite,<MutantSprite,<BaiterSprite
+    EQUB <BomberSprite,<SwarmerSprite,<HumanSprite,<PodSprite
+    EQUB <ProjectileSprite,<Score250Sprite,<Score500Sprite
+SpritePtrHiTable:
+    EQUB >ShipRightSprite,>LanderSprite,>MutantSprite,>BaiterSprite
+    EQUB >BomberSprite,>SwarmerSprite,>HumanSprite,>PodSprite
+    EQUB >ProjectileSprite,>Score250Sprite,>Score500Sprite
+RadarSpriteData:
+    EQUB &FF,&FF,&8A,&88,&A2,LaserEdgeDelta ; original &2B21
     EQUB &88,&88,&A2,&A2,&82,&8A,&A8,&A8 ; &2B27
     EQUB &20,&20,&00,&D8,&00,&00,&00,&FF ; &2B2F
-    EQUB &07,&07,&07,&03,&07,&03,&0F,&07 ; &2B37
-    EQUB &03,&07,&07,&00,&50,&50,&50,&00 ; &2B3F
-    EQUB &50,&00,&00,&25,&00,&00,&00,&01 ; &2B47
+SpriteMaxYTable:
+    EQUB &07,&07,&07,&03,&07,&03,&0F,&07 ; original &2B37
+    EQUB &03,&07,&07 ; original &2B3F
+PointsLoTable:
+    EQUB &00,&50,&50,&50,&00 ; original &2B42
+    EQUB &50,&00,&00,&25,&00,&00 ; original &2B47
+PointsHiTable:
+    EQUB &00,&01 ; original &2B4D
     EQUB &01,&01,&02,&02,&00,&10,&00,&00 ; &2B4F
-    EQUB &00,&00,&01,&01,&01,&01,&00,&00 ; &2B57
+    EQUB &00 ; original &2B57
+DoWarpTable:
+    EQUB &00,&01,&01,&01,&01,&00,&00 ; original &2B58
     EQUB &01,&00,&00,&00             ; &2B5F ; final four DoWarpTable entries
 
 ; &2B63-&2BFF: no code path, absolute/indexed access or table pointer references
@@ -4558,44 +4468,72 @@ DigitSprites:
     EQUB &00,&20,&20,&20,&20,&20,&20,&20 ; &2C87
     EQUB &00,&30,&20,&20,&30,&00,&00,&30 ; &2C8F
     EQUB &00,&20,&20,&20,&20,&20,&20,&20 ; &2C97
-    EQUB &00,&CC,&CD,&CD,&CC,&F3,&51,&51 ; &2C9F
-    EQUB &51,&00,&10,&10,&C3,&C3,&10,&10 ; &2CA7
+    EQUB &00 ; original &2C9F
+HumanSprite:
+    EQUB &CC,&CD,&CD,&CC,&F3,&51,&51 ; original &2CA0
+    EQUB &51 ; original &2CA7
+PodSprite:
+    EQUB &00,&10,&10,&C3,&C3,&10,&10 ; original &2CA8
     EQUB &00,&82,&92,&92,&C3,&C3,&92,&92 ; &2CAF
     EQUB &82,&00,&00,&00,&82,&82,&00,&00 ; &2CB7
-    EQUB &00,&15,&3F,&15,&11,&11,&11,&33 ; &2CBF
+    EQUB &00 ; original &2CBF
+ShipRightSprite:
+    EQUB &15,&3F,&15,&11,&11,&11,&33 ; original &2CC0
     EQUB &11,&00,&2A,&3F,&3F,&37,&33,&33 ; &2CC7
     EQUB &33,&00,&00,&00,&2A,&3F,&3F,&3F ; &2CCF
     EQUB &37,&00,&00,&00,&00,&00,&3F,&3F ; &2CD7
     EQUB &3F,&00,&00,&00,&00,&00,&07,&07 ; &2CDF
     EQUB &3F,&00,&00,&00,&00,&00,&08,&1D ; &2CE7
-    EQUB &3F,&00,&00,&00,&00,&00,&04,&2E ; &2CEF
+    EQUB &3F ; original &2CEF
+ShipLeftSprite:
+    EQUB &00,&00,&00,&00,&00,&04,&2E ; original &2CF0
     EQUB &3F,&00,&00,&00,&00,&00,&0B,&0B ; &2CF7
     EQUB &3F,&00,&00,&00,&00,&00,&3F,&3F ; &2CFF
     EQUB &3F,&00,&00,&00,&15,&3F,&3F,&3F ; &2D07
     EQUB &3B,&00,&15,&3F,&3F,&3B,&33,&33 ; &2D0F
     EQUB &33,&2A,&3F,&2A,&22,&22,&22,&37 ; &2D17
-    EQUB &22,&28,&28,&14,&14,&00,&28,&3C ; &2D1F
-    EQUB &14,&14,&14,&28,&28,&00,&45,&CC ; &2D27
+    EQUB &22 ; original &2D1F
+SurfaceTiles:
+    EQUB &28,&28,&14,&14,&00,&28,&3C ; original &2D20
+    EQUB &14,&14,&14,&28,&28 ; original &2D27
+LanderSprite:
+    EQUB &00,&45,&CC ; original &2D2C
     EQUB &CC,&44,&00,&44,&88,&CF,&CF,&44 ; &2D2F
     EQUB &44,&CC,&CE,&44,&44,&8A,&CF,&44 ; &2D37
     EQUB &44,&CC,&8A,&44,&00,&00,&00,LaserEdgeDelta ; &2D3F
-    EQUB &88,&00,&00,&00,&88,&00,&51,&CC ; &2D47
+    EQUB &88,&00,&00,&00,&88 ; original &2D47
+MutantSprite:
+    EQUB &00,&51,&CC ; original &2D4C
     EQUB &CC,&44,&00,&44,&88,&0C,&0C,&51 ; &2D4F
     EQUB &51,&F3,&D9,&51,&51,&88,&F6,&44 ; &2D57
     EQUB &44,&E6,&88,&44,&00,&00,&00,LaserEdgeDelta ; &2D5F
-    EQUB &88,&00,&00,&00,&88,&00,&44,&CD ; &2D67
+    EQUB &88,&00,&00,&00,&88 ; original &2D67
+BaiterSprite:
+    EQUB &00,&44,&CD ; original &2D6C
     EQUB &44,&CC,&C0,&CA,&CC,&CC,&C0,&CF ; &2D6F
     EQUB &CC,&CC,&C0,&C5,&CC,&00,&88,&CE ; &2D77
     EQUB &88,&00,&00,&00,&00,&00,&50,&E5 ; &2D7F
     EQUB &76,&A8,&A2,&01,&A5,&76,&20,SourcePtrHi ; &2D87
-    EQUB &1D,&4C,&FB,&20,&68,&51,&03,&06 ; &2D8F
+    EQUB &1D,&4C,&FB,&20,&68 ; original &2D8F
+BomberSprite:
+    EQUB &51,&03,&06 ; original &2D94
     EQUB &06,&06,&06,&03,&03,&F3,&03,&0C ; &2D97
     EQUB &0E,&0E,&0C,&03,&03,&F3,&53,&53 ; &2D9F
-    EQUB &53,&53,&53,&02,&02,&00,&41,&C7 ; &2DA7
+    EQUB &53,&53,&53,&02,&02 ; original &2DA7
+SwarmerSprite:
+    EQUB &00,&41,&C7 ; original &2DAC
     EQUB &41,&82,&C3,&C7,&C3,&00,&00,Random2 ; &2DAF
-    EQUB &00,&AA,&AA,&FF,&FF,&FF,&FF,&00 ; &2DB7
+    EQUB &00 ; original &2DB7
+ProjectileSprite:
+    EQUB &AA,&AA ; original &2DB8
+ShrapnelSprite:
+    EQUB &FF,&FF,&FF,&FF ; original &2DBA
+Score250Sprite:
+    EQUB &00 ; original &2DBE
     EQUB &00,&05,&00,&05,&05,&05,&00,&00 ; &2DBF
-    EQUB &00,&0F,&05,&0F,&00,&0F,&00,&00 ; &2DC7
+    EQUB &00,&0F,&05,&0F,&00,&0F,&00 ; original &2DC7
+Score500Sprite:
+    EQUB &00 ; original &2DCE
     EQUB &00,&0C,&08,&0C,&00,&0C,&00,&00 ; &2DCF
     EQUB &00,&09,&01,&09,&09,&09,&00,&00 ; &2DD7
     EQUB &00,&03,&01,&01,&01,&03,&00,&00 ; &2DDF
@@ -4629,31 +4567,186 @@ DigitSprites:
     EQUB &03,&07,&07,&00,&50,&50,&50,&00 ; &2EBF
     EQUB &50,&00,&00,&25,&00,&00,&00,&01 ; &2EC7
     EQUB &01,&01,&02,&02,&00,&10,&00,&00 ; &2ECF
-    EQUB &00,&00,&01,&01,&01,&00,&00,&00 ; &2ED7
-    EQUB &00,&1C,&0F,&14,&16,&4A,&3C,&41 ; &2EDF
-    EQUB &43,&4C,&FF,&FF,&FF,&36,&4E,&58 ; &2EE7
-    EQUB &5A,&79,&E9,&EF,&ED,&78,&65,&60 ; &2EEF
-    EQUB &60,&C9,&99,&9F,&9D,&79,&64,&5F ; &2EF7
-    EQUB &5F,&88,&7D,&00,&00,&00,&00,&2F ; &2EFF
-    EQUB &4D,&88,&7D,&B1,&93,&B1,&01,&00 ; &2F07
-    EQUB &00,&00,&00,&00,&19,&02,&00,&04 ; &2F0F
-    EQUB &04,&D9,&08,&01,&76,&F9,&FF,&93 ; &2F17
-    EQUB &FF,&9E,&D8,&22,&00,&00,&1E,&00 ; &2F1F
-    EQUB &01,&00,&4D,&00,&FF,&3F,&00,&58 ; &2F27
-    EQUB &7E,&75,&81,&02,&41,&04,&03,&06 ; &2F2F
-    EQUB &00,&04,&FB,&40,&01,&F1,&2B,&00 ; &2F37
-    EQUB &01,&03,&04,&60,&F9,&00,&DE,&CC ; &2F3F
-    EQUB &0E,&EA,&0E,&6A,&10,&02,&11,&37 ; &2F47
-    EQUB &11,&40,&11,&BB,&11,&73,&12,&CF ; &2F4F
-    EQUB &0E,&CF,&0E,&CF,&0E,&00,&00,&00 ; &2F57
-    EQUB &05,&00,&00,&04,&00,&00,&00,&07 ; &2F5F
-    EQUB &00,&40,&00,&40,&00,&00,&00,&00 ; &2F67
-    EQUB &FF,&7F,&0F,&07,&00,&FF,&3F,&64 ; &2F6F
-    EQUB &B4,&00,&00,&00,&00,&0A,&00,&00 ; &2F77
-    EQUB &00,&FF,&FF,&FF,&1F,&00,&FF,&02 ; &2F7F
-    EQUB &18,&00,&0A,&18,&32,&04,&08,&07 ; DXMinInit+LANDER
-    EQUB &0F,&00,&07,&0F,&07,&00,&07,&0A ; &2F8F
-    EQUB &00,&00,&0A,&00,&18,&00,&08,&3F ; &2F97
+    EQUB &00,&00,&01,&01,&01 ; original &2ED7
+LaserActive:
+    EQUB &00,&00,&00 ; original &2EDC
+    EQUB &00 ; original &2EDF
+LaserTailPhase:
+    EQUB &1C,&0F,&14,&16 ; original &2EE0
+LaserHeadPhase:
+    EQUB &4A,&3C,&41 ; original &2EE4
+    EQUB &43 ; original &2EE7
+LaserX:
+    EQUB &4C,&FF,&FF,&FF ; original &2EE8
+LaserY:
+    EQUB &36,&4E,&58 ; original &2EEC
+    EQUB &5A ; original &2EEF
+LaserTailPtrLo:
+    EQUB &79,&E9,&EF,&ED ; original &2EF0
+LaserTailPtrHi:
+    EQUB &78,&65,&60 ; original &2EF4
+    EQUB &60 ; original &2EF7
+LaserHeadPtrLo:
+    EQUB &C9,&99,&9F,&9D ; original &2EF8
+LaserHeadPtrHi:
+    EQUB &79,&64,&5F ; original &2EFC
+    EQUB &5F ; original &2EFF
+OldScreenOriginLo:
+    EQUB &88 ; original &2F00
+OldScreenOriginHi:
+    EQUB &7D ; original &2F01
+ScrollOffsetLo:
+    EQUB &00 ; original &2F02
+ScrollOffsetHi:
+    EQUB &00 ; original &2F03
+HighScoreBCD:
+    EQUB &00,&00,&2F ; original &2F04
+    EQUB &4D ; original &2F07
+ScreenOriginLo:
+    EQUB &88 ; original &2F08
+ScreenOriginHi:
+    EQUB &7D ; original &2F09
+WorldWindowX:
+    EQUB &B1,&93 ; original &2F0A
+SurfaceWindowEdges:
+    EQUB &B1,&01 ; original &2F0C
+TabKeyLatch:
+    EQUB &00 ; original &2F0E
+BackgroundPalette:
+    EQUB &00 ; original &2F0F
+FrameCounterLo:
+    EQUB &00 ; original &2F10
+FrameCounterHi:
+    EQUB &00 ; original &2F11
+GeneralCount:
+    EQUB &00 ; original &2F12
+EnemyCount:
+    EQUB &19 ; original &2F13
+SquadDelayHigh:
+    EQUB &02 ; original &2F14
+HumanCount:
+    EQUB &00 ; original &2F15
+LevelBCD:
+    EQUB &04 ; original &2F16
+HumanBonusBCD:
+    EQUB &04 ; original &2F17
+BaitDelayLo:
+    EQUB &D9 ; original &2F18
+BaitDelayHi:
+    EQUB &08 ; original &2F19
+NoPlanet:
+    EQUB &01 ; original &2F1A
+LastVSync:
+    EQUB &76 ; original &2F1B
+ShipAccelerationLo:
+    EQUB &F9 ; original &2F1C
+ShipAccelerationHi:
+    EQUB &FF ; original &2F1D
+WorldScrollVelocityLo:
+    EQUB &93 ; original &2F1E
+WorldScrollVelocityHi:
+    EQUB &FF ; original &2F1F
+WorldLeftEdgeLo:
+    EQUB &9E ; original &2F20
+WorldLeftEdgeHi:
+    EQUB &D8 ; original &2F21
+AlternateUnitIndex:
+    EQUB &22 ; original &2F22
+SpaceKeyLatch:
+    EQUB &00 ; original &2F23
+PlayerDead:
+    EQUB &00 ; original &2F24
+AIBatchSize:
+    EQUB &1E ; original &2F25
+AIBatchCounter:
+    EQUB &00 ; original &2F26
+SpawnSpriteType:
+    EQUB &01 ; original &2F27
+MinScreenX:
+    EQUB &00 ; original &2F28
+MaxScreenX:
+    EQUB &4D ; original &2F29
+WorldWindowDelta:
+    EQUB &00 ; original &2F2A
+EnterKeyLatch:
+    EQUB &FF ; original &2F2B
+ShipScreenX:
+    EQUB &3F ; original &2F2C
+HitchhikerCount:
+    EQUB &00 ; original &2F2D
+DigitScreenPtrLo:
+    EQUB &58 ; original &2F2E
+DigitScreenPtrHi:
+    EQUB &7E ; original &2F2F
+ScoreBCD:
+    EQUB &75,&81,&02 ; original &2F30
+LeadingZeroState:
+    EQUB &41 ; original &2F33
+FlashPaletteIndex:
+    EQUB &04 ; original &2F34
+FlashPaletteCountdown:
+    EQUB &03 ; original &2F35
+FlashPalettePeriod:
+    EQUB &06 ; original &2F36
+LivesBCD:
+    EQUB &00 ; original &2F37
+SmartBombsBCD:
+    EQUB &04 ; original &2F38
+GameOverStackPointer:
+    EQUB &FB ; original &2F39
+EnemyShotSpeed:
+    EQUB &40 ; original &2F3A
+SmartBombPass2:
+    EQUB &01 ; original &2F3B
+ShipPalette:
+    EQUB &F1 ; original &2F3C
+PaletteRotateFrameCount:
+    EQUB &2B ; original &2F3D
+PaletteRotateIndex:
+    EQUB &00 ; original &2F3E
+PaletteRotateColours:
+    EQUB &01,&03,&04 ; original &2F3F
+SurfacePalette:
+    EQUB &60 ; original &2F42
+NextLevelStackPointer:
+    EQUB &F9 ; original &2F43
+LevelStillSpawning:
+    EQUB &00 ; original &2F44
+VSyncCounter:
+    EQUB &DE ; original &2F45
+AIVectorTable:
+    ; One little-endian handler pointer for each UnitType 0..10.
+    ; These are expressions, not frozen original addresses, so inserting code
+    ; before an AI routine keeps the dispatch table valid.
+    EQUW AI_Ship,AI_Lander,AI_Mutant,AI_Baiter,AI_Bomber,AI_Swarmer
+    EQUW AI_Human,AI_Pod,AI_TimedObject,AI_TimedObject,AI_TimedObject
+    EQUB &00,&00                    ; original unused padding &2F5C-&2F5D
+SpawnCount:
+    EQUB &00 ; original &2F5E
+    EQUB &05,&00,&00,&04,&00,&00,&00 ; original &2F5F
+XMinInit:
+    EQUB &07 ; original &2F66
+    EQUB &00,&40,&00,&40,&00,&00,&00 ; original &2F67
+XRangeInit:
+    EQUB &00 ; original &2F6E
+    EQUB &FF,&7F,&0F,&07,&00,&FF,&3F ; original &2F6F
+YMinInit:
+    EQUB &64 ; original &2F76
+    EQUB &B4,&00,&00,&00,&00,&0A,&00 ; original &2F77
+YRangeInit:
+    EQUB &00 ; original &2F7E
+    EQUB &00,&FF,&FF,&FF,&1F,&00,&FF ; original &2F7F
+DXMinInit:
+    EQUB &02 ; original &2F86
+    EQUB &18,&00,&0A,&18,&32,&04,&08 ; original &2F87
+DXRangeInit:
+    EQUB &07 ; original &2F8E
+    EQUB &0F,&00,&07,&0F,&07,&00,&07 ; original &2F8F
+DYMinInit:
+    EQUB &0A ; original &2F96
+    EQUB &00,&00,&0A,&00,&18,&00,&08 ; original &2F97
+DYRangeInit:
+    EQUB &3F ; original &2F9E
     EQUB &00,&00,&07,&0F,&07,&00,&07 ; &2F9F ; final seven DYRangeInit entries
 
 ; &2FA6-&2FC7 is not referenced by any instruction or pointer in Defender V1.
@@ -4670,13 +4763,17 @@ UnusedPreStringPointerData:
 
 StringPointerLo:
     ; Only indices 0,1,2 are ever passed to DrawStringByIndex.
-    EQUB &D0,&D4,&EE                 ; &2FC8
+    EQUB <String0_ClearTextAndRestorePalette
+    EQUB <String1_LevelCompleteTemplate
+    EQUB <String2_GameOverTemplate
 
 UnusedStringPointerLowPadding:
     EQUB &17                         ; &2FCB ; never indexed
 
 StringPointerHi:
-    EQUB &2F,&2F,&2F                 ; &2FCC
+    EQUB >String0_ClearTextAndRestorePalette
+    EQUB >String1_LevelCompleteTemplate
+    EQUB >String2_GameOverTemplate
 UnusedStringPointerHighPadding:
     EQUB &00                         ; &2FCF ; fourth, unused high-table byte
 
@@ -4707,22 +4804,23 @@ Startup:
 ; from &305A to &0400 and jumps to that stub.
     TSX                          ; &3000: BA
     STX GameOverStackPointer                    ; &3001: 8E 39 2F
-    LDA #&13                     ; &3004: A9 13
-    STA BRKV                    ; &3006: 8D 02 02
-    LDA #&30                     ; &3009: A9 30
-    STA BRKV+1                    ; &300B: 8D 03 02
-    LDA #&00                     ; &300E: A9 00
-    JSR OSBYTE                    ; &3010: 20 F4 FF
-    LDX GameOverStackPointer                    ; &3013: AE 39 2F
+    LDA #<StartupBRKRecovery     ; original &3004: A9 13
+    STA BRKV                     ; original &3006: 8D 02 02
+    LDA #>StartupBRKRecovery     ; original &3009: A9 30
+    STA BRKV+1                   ; original &300B: 8D 03 02
+    LDA #&00                     ; original &300E: A9 00
+    JSR OSBYTE                   ; original &3010: 20 F4 FF
+StartupBRKRecovery:
+    LDX GameOverStackPointer     ; original &3013: AE 39 2F
     TXS                          ; &3016: 9A
     JSR CheckOSCommandTailCompatibility                    ; &3017: 20 90 30
     BNE InstallIRQAndLaunchStub                    ; &301A: D0 10
-    LDA #&24                     ; &301C: A9 24
-    STA &0E13                    ; &301E: 8D 13 0E
-    STA &0E1F                    ; &3021: 8D 1F 0E
-    LDA #&02                     ; &3024: A9 02
-    STA &0E14                    ; &3026: 8D 14 0E
-    STA &0E20                    ; &3029: 8D 20 0E
+    LDA #&24                     ; low byte of MOS command-tail pointer &0224
+    STA WaitForVSync+1           ; patch operand low byte, original &0E13
+    STA CheckForNewVSync+1       ; patch operand low byte, original &0E1F
+    LDA #&02                     ; high byte of MOS command-tail pointer &0224
+    STA WaitForVSync+2           ; patch operand high byte, original &0E14
+    STA CheckForNewVSync+2       ; patch operand high byte, original &0E20
 
 InstallIRQAndLaunchStub:
     SEI                          ; &302C: 78
@@ -4730,10 +4828,10 @@ InstallIRQAndLaunchStub:
     STA OldIRQ1VLo                      ; &3030: 85 8C
     LDA IRQ1V+1                    ; &3032: AD 05 02
     STA OldIRQ1VHi                      ; &3035: 85 8D
-    LDA #&05                     ; &3037: A9 05
-    STA IRQ1V                    ; &3039: 8D 04 02
-    LDA #&0E                     ; &303C: A9 0E
-    STA IRQ1V+1                    ; &303E: 8D 05 02
+    LDA #<IRQ1VHandler          ; original &3037: A9 05
+    STA IRQ1V                   ; original &3039: 8D 04 02
+    LDA #>IRQ1VHandler          ; original &303C: A9 0E
+    STA IRQ1V+1                 ; original &303E: 8D 05 02
     CLI                          ; &3041: 58
     LDA #<RelocatedVideoStub      ; &3042: A9 00
     STA DestPtrLo                  ; &3044: 85 70
@@ -4743,8 +4841,9 @@ InstallIRQAndLaunchStub:
     STA SourcePtrLo                ; &304C: 85 72
     LDA #>LiveVideoStubImage      ; &304E: A9 30
     STA SourcePtrHi                ; &3050: 85 73
-    LDA #&2D                       ; &3052: A9 2D ; 46 bytes - 1
-    JSR CopyBlockDown              ; &3054: 20 87 30
+    LDA #(LiveVideoStubImageEnd-LiveVideoStubImage)
+                                  ; original &3052: A9 2D ; original 46-byte copy count
+    JSR CopyBlockDown             ; original &3054: 20 87 30
     JMP RelocatedVideoStub         ; &3057: 4C 00 04
 
 LiveVideoStubImage:
@@ -4772,8 +4871,10 @@ LiveVideoStubImage:
 LiveVideoStubImageEnd:
 
 CopyBlockDown:
-; Copy A+1 bytes backwards from SourcePtr to DestPtr.  Startup uses A=&2D to
-; copy the 46-byte live stub to page &04.
+; Copy A+1 bytes backwards from SourcePtr to DestPtr. The original startup copies
+; 46 bytes beginning at LiveVideoStubImage; its final copied byte is the byte at
+; LiveVideoStubImageEnd (the first byte of the following routine). Deriving A
+; from the labels preserves that original behaviour without freezing &2D.
     TAY                          ; &3087: A8
 CopyBlockDownLoop:
     LDA (SourcePtrLo),Y                  ; &3088: B1 72
