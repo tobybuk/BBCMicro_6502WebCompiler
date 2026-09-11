@@ -1,6 +1,6 @@
 ; =============================================================================
 ; Frak! (BBC Micro, Aardvark Software, 1984)
-; Stage 8 semantic reconstruction - relocatability-clean multi-ORG baseline
+; Stage 10 documented semantic reconstruction - exact multi-ORG baseline
 ; =============================================================================
 ;
 ; SOURCE LAYOUT
@@ -35,6 +35,34 @@
 ; flat file and therefore fills holes.  "Save boot disk" / "Run in jsbeeb" do
 ; not: the loader uses the assembler's emitted segment list and copies only the
 ; actual Frak bytes to their ORG addresses.
+;
+; PROGRAM FLOW
+; ------------
+;   boot loader installs the sparse ORG segments
+;       -> start / GameInitialise (&3000, one-shot and disposable)
+;       -> RuntimeGameEntry (&0380, cast/credits screen)
+;       -> GameStartTitleLoop / TitleStartSequence (attract/high-score sequence)
+;       -> NewGame -> StartScreen
+;       -> MainGameFrame: player -> death/completion -> keys/timer -> hazards
+;       -> ScreenComplete advances BaseScreen A/B/C; every wrap advances the
+;          0..7 TransformCycle, giving 24 screen/transform combinations.
+;
+; CODE-READING CONVENTIONS
+; ------------------------
+; SharedScratch/SharedWork/SharedIndirect names are not unresolved variables:
+; they are bytes deliberately reused by unrelated routines at different times.
+; Context-specific aliases immediately below show the proven meaning at each use.
+; Numeric addresses that remain are BBC MOS, hardware or intentional runtime
+; workspace contracts rather than unidentified references back into the game.
+;
+; MODIFICATION NOTES
+; ------------------
+; Search this file for the exact prefix "; MOD:".  Those comments mark values
+; whose gameplay effect has been traced well enough to be useful modification
+; points.  They are comments only and do not change the original bytes.
+; Values without a MOD note may be tightly coupled to screen geometry, record
+; formats, workspace layout or self-modifying code and should not be treated as
+; simple tuning parameters merely because they are constants.
 ;
 ; Fixed BBC MOS/hardware/runtime symbols
 ; --------------------------------------
@@ -94,6 +122,7 @@ EnginePrefixState       = REGION_ENGINE-1
 ; &1E-&20 are saved/restored by the recursive composite-sprite walker.
 ; They are scratch state, not object type constants, despite &1E also being the
 ; numeric Poglet sprite/type ID elsewhere in the game.
+ZeroPageBase           = &00
 SpriteTraversalCount   = &1E
 SpriteTraversalPtrLo   = &1F
 SpriteTraversalPtrHi   = &20
@@ -102,13 +131,14 @@ CurrentSpriteY          = &12
 InkeyCode               = &21
 ScrollCopyPtrLo         = &24
 ScrollCopyPtrHi         = &25
-Scratch26               = &26
+SharedScratch26         = &26
 RandomMask              = &27
 RandomState             = &28
-IndirectPtrLo            = &29
-IndirectPtrHi            = &2A
-GameState2F             = &2F
+SharedIndirectLo        = &29
+SharedIndirectHi        = &2A
+MusicInhibitFlag             = &2F
 WalkAnimationPhase              = &32
+SharedAnimationCounter = &34
 SavedObjectIndex        = &33
 ScoreLo                 = &38
 ScoreMid                = &39
@@ -116,12 +146,12 @@ ScoreHi                 = &3A
 Lives                   = &3B
 BaseScreen              = &3C
 TransformCycle          = &3D
-WorkPtrLo               = &3F
-WorkPtrHi               = &40
-Work41                  = &41
-Work42                  = &42
+SharedWorkLo            = &3F
+SharedWorkHi            = &40
+HighScoreEntryChar                  = &41
+HighScoreWorkCounter    = &42
 TickCounter             = &44
-SoundDisabledFlag            = &4B
+SoundMutedFlag            = &4B
 SavedKeyVLo            = &4C
 SavedKeyVHi            = &4D
 SavedIRQ1VLo            = &4E
@@ -129,29 +159,32 @@ SavedIRQ1VHi            = &4F
 PlayerAirborneFlag                 = &53
 PlayerClimbingFlag                 = &54
 YoyoActiveFlag                 = &55
-PlayerFacingStep          = &57
+PlayerHorizontalStep          = &57
 PlayerFrameSprite         = &58
-CollisionObject         = &64
+CollidedObjectSlot         = &64
 LevelStreamLo           = &6D
 LevelStreamHi           = &6E
-SoundIrqGate            = &70
+ScrollRefreshRequestFlag            = &70
 LastTick                = &71
-Orientation             = &74
-KeysRemaining           = &7A
-PlayerDeathState        = &7B
+VerticalFlipFlag             = &74
+KeysRemainingMinusOne   = &7A
+PlayerDeadFlag        = &7B
+TitleRandomSprite       = &7C
+TitleRandomDrawCount    = &7D
+SavedAbortStackPtr      = &7E
 MaskLookupPtrLo         = &80
 MaskLookupPtrHi         = &81
 TimeLoBCD               = &82
 TimeHiBCD               = &83
 CountdownDivider        = &84
-CountdownState          = &85
-ControlMode               = &86
-InputState              = &87
+CountdownFlags          = &85
+ControlScheme               = &86
+SelectedControlScheme              = &87
 HazardCounter           = &88
 HazardReload            = &89
-MusicCountdown          = &91
-PauseGate               = &92
-OSCallGate              = &93
+MusicDurationCounter   = &91
+PauseFlag               = &92
+MosCallInProgressFlag              = &93
 
 ; Collision/object/render workspace.  These locations are deliberately reused
 ; by several subsystems; names below describe their dominant live meaning.
@@ -159,29 +192,29 @@ CollisionLeft           = &45
 CollisionRight          = &46
 CollisionTop            = &47
 CollisionBottom         = &48
-ScrollRequest           = &52
+ScrollDirectionFlags           = &52
 CollisionMask           = &5A
 ActiveQueueDescriptor   = &5B
 LevelQueueDescriptor    = &5C
 JumpInputHistory        = &5D
 SpriteOperationMode     = &5E
 SpriteCollisionDrawFlag = &5F
-ObjectCount             = &60
+SharedObjectCount       = &60
 YoyoBaseX               = &65
 YoyoSegmentPhase        = &66
 YoyoExtensionCount      = &67
-TempObjectSprite        = &68
-TempObjectX             = &69
-TempObjectY             = &6A
+PendingObjectSprite     = &68
+PendingObjectX          = &69
+PendingObjectY          = &6A
 LevelThemeMapLo         = &6B
 LevelThemeMapHi         = &6C
-PrimitiveBoundsBytes    = &6F
+PrimitiveBoundsByteCount    = &6F
 SpriteBoundsMinX        = &75
 SpriteBoundsMaxX        = &76
 SupportObjectSlot       = &77
 YoyoAnimationIndex      = &78
 YoyoExtensionDirection  = &79
-SelectedTuneOffsetSlot  = &8A
+CurrentTuneOffsetSlot  = &8A
 TuneOffsetScreenA       = &8B
 TuneOffsetScreenB       = &8C
 TuneOffsetScreenC       = &8D
@@ -191,6 +224,48 @@ TuneStreamPosition      = &90
 CollidedQueueDescriptor = &94
 ScanQueueDescriptor     = &95
 
+; Context-specific aliases for deliberately shared zero-page scratch bytes.
+RandomLimit              = SharedScratch26
+JoystickScratch          = SharedScratch26
+LevelThemeCode           = SharedScratch26
+LevelObjectRemaining     = SharedScratch26
+RequestedObjectType      = SharedScratch26
+HighScoreInsertOffset    = SharedScratch26
+TimeBonusRepeatCounter   = SharedWorkLo
+ScreenClearPtrLo         = SharedWorkLo
+ScreenClearPtrHi         = SharedWorkHi
+LevelVariantBase         = SharedWorkLo
+LevelQueueEndSlot        = SharedWorkHi
+HighScoreNameOffset      = SharedWorkLo
+MovementObjectSlot       = SharedScratch26
+PreviousScoreMid         = SharedScratch26
+SavedSpriteIndex         = SharedScratch26
+PrimitiveLeftScratch     = SharedScratch26
+LadderProbeObjectSlot     = SharedScratch26
+LadderSavedX              = SharedScratch26
+LadderSideRelationBits    = SharedScratch26
+
+; &29/&2A are a deliberately shared indirect-pointer pair.
+InlineStreamPtrLo         = SharedIndirectLo
+InlineStreamPtrHi         = SharedIndirectHi
+TypeDispatchPtrLo         = SharedIndirectLo
+TypeDispatchPtrHi         = SharedIndirectHi
+TitleRandomScratch        = SharedIndirectLo
+
+; &3F/&40 are general two-byte workspace with non-overlapping lifetimes.
+CrtcStartAddressLo        = SharedWorkLo
+
+; Other shared single-byte work areas with context-specific meanings.
+HighScoreRankNumber       = HighScoreWorkCounter
+HighScoreInitialsRemaining = HighScoreWorkCounter
+YoyoKnockbackFramesRemaining = SharedAnimationCounter
+TransitionFramesRemaining = SharedAnimationCounter
+HighScoreRowIndex         = SharedObjectCount
+MatchedObjectCount        = SharedObjectCount
+RenderCallerObjectSlot   = SavedObjectIndex
+CollisionSourceObjectSlot = SavedObjectIndex
+
+
 ; Queue descriptor offsets (&0B00 + offset) and collision-mask meanings.
 QUEUE_TROGG             = &00
 QUEUE_DAGGERS           = &03
@@ -199,12 +274,19 @@ QUEUE_COLLECTIBLES      = &09
 QUEUE_MONSTERS          = &0C
 QUEUE_FLOORS            = &0F
 QUEUE_LADDERS           = &12
+QUEUE_DESCRIPTOR_STRIDE  = 3
+QUEUE_DESC_FIRST_SLOT    = 0
+QUEUE_DESC_COLLISION     = 1
+QUEUE_DESC_TAG           = 2
+QUEUE_DESC_END_SLOT      = 3
+COLLIDE_NONE            = &00
 COLLIDE_PLAYER_HAZARD   = &01
 COLLIDE_FLOOR           = &02
 COLLIDE_LADDER          = &04
 COLLIDE_YOYO            = &08
 COLLIDE_COLLECTIBLE     = &10
 COLLIDE_YOYO_DARK       = &80
+COLLIDE_RESERVED_40       = &40  ; present on collectible/monster descriptors; no live caller selects bit 6 alone
 
 TROGG_FIRST_SLOT        = 0
 DAGGER_FIRST_SLOT       = 3
@@ -217,6 +299,7 @@ OBJECT_SLOT_END         = OBJECT_SLOT_COUNT
 LevelObjectSprite       = &35
 
 ; BBC negative-INKEY internal key numbers used by Frak's documented controls.
+; MOD: Change the KEY_* negative-INKEY values below to remap Frak controls.
 KEY_ESCAPE              = &8F
 KEY_UNFREEZE_COPY       = &96
 KEY_DOWN_QUESTION       = &97     ; / key position; ? when shifted
@@ -228,16 +311,409 @@ KEY_UP_STAR             = &B7     ; :/* key position
 KEY_RIGHT_X             = &BD
 KEY_QUIET_Q             = &EF
 
+KEY_START_SPACE          = &9D
+
+; Game-state values and timing constants.
+CONTROL_KEYBOARD         = 0
+CONTROL_JOYSTICK         = 1
+COUNTDOWN_RUNNING        = &00
+COUNTDOWN_SECOND_PENDING = &FF
+COUNTDOWN_STOPPED        = &40
+PAUSE_RUNNING            = &00
+PAUSE_ACTIVE             = &FF
+SCROLL_NONE              = &00
+SCROLL_LEFT              = &40
+SCROLL_RIGHT             = &80
+PLAYER_STEP_RIGHT        = &01
+PLAYER_STEP_LEFT         = &FF
+; MOD: Player update cadence. Lower = Trogg movement/physics updates more often; higher = slower.
+PLAYER_UPDATE_DIVISOR    = 4
+; MOD: In-game clock divisor. &32=50 VSync ticks = one real second on a 50 Hz BBC; lower runs the clock faster.
+COUNTDOWN_TICKS_PER_SEC  = &32             ; 50 Hz event ticks
+; MOD: Starting lives. Increase this number to start a new game with more lives.
+INITIAL_LIVES            = 3
+BASE_SCREEN_COUNT        = 3
+TRANSFORM_MASK           = &07
+; MOD: Hazard interval base. Spawn reload is (this - TransformCycle)*4; larger = fewer balloons/daggers. Keep above max cycle 7.
+HAZARD_BASE_RELOAD       = &0B
+; MOD: Extra hazard aggression after the timer reaches 0. Larger reduction = shorter post-timeout spawn interval; avoid underflow.
+HAZARD_EXPIRED_REDUCTION = &0A
+; MOD: Initial delay on a newly spawned balloon/dagger. Lower = it starts moving sooner.
+DYNAMIC_SPAWN_DELAY      = &14
+
+; Joystick/ADC conventions used by the control readers.
+JOYSTICK_FIRE_SELECTOR   = 0
+JOYSTICK_X_CHANNEL       = 1
+JOYSTICK_Y_CHANNEL       = 2
+; MOD: Joystick dead-zone thresholds. Move LOW/HIGH toward the centre for more sensitive analogue control.
+JOYSTICK_LOW_THRESHOLD   = &64
+JOYSTICK_HIGH_THRESHOLD  = &9C
+JOYSTICK_FIRE_MASK       = &01
+
+; BBC MOS reason codes used by Frak.
+OSBYTE_SET_FLASH_MARK    = &09
+OSBYTE_SET_FLASH_SPACE   = &0A
+OSBYTE_ENABLE_EVENT      = &0E
+OSBYTE_FLUSH_BUFFER      = &15
+OSBYTE_REFLECT_LEDS      = &76
+OSBYTE_READ_ADC          = &80
+OSBYTE_INKEY             = &81
+OSBYTE_ADC_8BIT_MODE     = &BE
+OSBYTE_KEYBOARD_STATUS   = &CA
+OSWORD_SOUND             = &07
+OSWORD_ENVELOPE          = &08
+EVENT_VERTICAL_SYNC      = 4
+SOUND_CHANNEL_YOYO       = &0011
+SOUND_CHANNEL_MOVE       = &0012
+SOUND_CHANNEL_MUSIC      = &0013
+SOUND_ENVELOPE_MUSIC     = 1
+SOUND_ENVELOPE_MOVE      = 2
+SOUND_ENVELOPE_YOYO_HIT  = 3
+SOUND_ENVELOPE_COLLECT   = 4
+SOUND_DURATION_DEFAULT   = &00FF
+
+; CRTC registers used when moving the hardware display origin.
+CRTC_SCREEN_START_HI     = &0C
+CRTC_SCREEN_START_LO     = &0D
+BBC_COLOUR_BLACK          = 0
+BBC_COLOUR_RED            = 1
+BBC_COLOUR_GREEN          = 2
+BBC_COLOUR_YELLOW         = 3
+BBC_COLOUR_BLUE           = 4
+BBC_COLOUR_MAGENTA        = 5
+BBC_COLOUR_CYAN           = 6
+BBC_COLOUR_WHITE          = 7
+
+; Music-byte format.  Bits 2-6 are pitch, bits 0-1 are the duration code and
+; bit 7 is the end/loop marker consumed by MusicStep.
+MUSIC_DURATION_MASK      = &03
+MUSIC_PITCH_MASK         = &7C
+MUSIC_END_FLAG           = &80
+
+; Packed-BCD scoring/time values.  DrawStatus appends a trailing zero to the
+; three BCD score bytes, therefore one score unit here represents ten points.
+; MOD: Key score in packed BCD units of 10 displayed points. &50 = 500 points.
+SCORE_KEY_BCD            = &50             ; 500 points
+; MOD: Gem score in packed BCD units of 10 displayed points. &15 = 150 points.
+SCORE_GEM_BCD            = &15             ; 150 points
+; MOD: Yo-yo monster-hit score. &25 = 250 points.
+SCORE_MONSTER_BCD        = &25             ; 250 points
+; MOD: Light-bulb time bonus in packed BCD seconds. &10 adds 10 seconds.
+BULB_TIME_BONUS_BCD      = &10             ; ten seconds
+BCD_SECONDS_PER_MINUTE   = &60
+BCD_LAST_SECOND          = &59
+; MOD: Screen-complete time-to-score multiplier. Lower reduces the remaining-time bonus; &0A repeats the conversion ten times.
+TIME_BONUS_REPEAT_COUNT  = &0A
+
+; Object/sprite sentinels and compact data-format constants.
+OBJECT_EMPTY             = &FF
+SPRITE_HIDDEN            = &FF
+LEVEL_VARIANT_MASK       = &07
+LEVEL_QUEUE_END          = &00
+LEVEL_END                = &FF
+THEME_LOOKUP_RECORD_SIZE = 3
+THEME_LOOKUP_PTR_LO      = 1
+THEME_LOOKUP_PTR_HI      = 2
+TYPE_DISPATCH_RECORD_SIZE = 3
+TYPE_DISPATCH_HANDLER_LO = 1
+TYPE_DISPATCH_HANDLER_HI = 2
+SPRITE_MIRROR_FLAG       = &80
+SPRITE_WIDTH_MASK        = &7F
+SPRITE_DESCRIPTOR_COUNT  = &5C             ; 92 descriptor entries
+
+; Object rendering modes passed to ProcessSprite.  Bit 7 selects erase pixel
+; operators; bit 6 requests a collision scan after the render traversal.
+OBJECT_RENDER_DRAW              = &00
+OBJECT_RENDER_DRAW_AND_COLLIDE  = &40
+OBJECT_RENDER_ERASE             = &80
+OBJECT_RENDER_ERASE_AND_COLLIDE = &C0
+OBJECT_RENDER_COLLISION_BIT     = &40
+OBJECT_RENDER_ERASE_BIT         = &80
+
+; Recursive sprite traversal modes are word offsets into
+; SpriteTraversalReturnTable.  Primitive pixel operators are likewise word
+; offsets into PixelOperationTable.
+SPRITE_TRAVERSE_BOUNDS          = 0
+SPRITE_TRAVERSE_COLLISION       = 2
+SPRITE_TRAVERSE_RENDER          = 4
+COMPOSITE_CHILD_RECORD_SIZE     = 3
+COMPOSITE_CHILD_SPRITE_OFFSET   = 0
+COMPOSITE_CHILD_X_OFFSET        = 1
+COMPOSITE_CHILD_Y_OFFSET        = 2
+PRIMITIVE_BOUNDS_RECORD_SIZE    = 4
+PIXEL_OP_MASKED_FORWARD         = 0
+PIXEL_OP_MASKED_REVERSE         = 2
+PIXEL_OP_SOLID                  = 4
+PIXEL_OP_ERASE_TABLE_OFFSET     = 6
+
+; Dynamic hazard geometry/speeds.
+; MOD: Balloon vertical movement step. Larger = balloons rise faster each movement update.
+BALLOON_Y_STEP           = &06
+BALLOON_DESPAWN_Y        = &F0
+; MOD: Dagger vertical movement step. Larger = daggers descend faster each movement update.
+DAGGER_Y_STEP            = &02
+DAGGER_MIN_Y             = &14
+BALLOON_SPAWN_Y          = &08
+DAGGER_SPAWN_Y           = &FA
+DAGGER_SPAWN_X_SPAN      = &28
+DAGGER_SPAWN_X_OFFSET    = &32
+BALLOON_SPAWN_X_SPAN     = &50
+
+; Yo-yo/player slots and limits.
+TROGG_SLOT               = 0
+YOYO_STRING_SLOT         = 1
+YOYO_HEAD_SLOT           = 2
+YOYO_MIN_EXTENSION       = &05
+; MOD: Maximum yo-yo string extension. Increase for greater reach; keep descriptor/string-frame limits in mind.
+YOYO_MAX_EXTENSION       = &0B
+YOYO_RIGHT_LIMIT         = &C8
+; MOD: Number of knockback animation frames after the yo-yo hits a monster.
+YOYO_KNOCKBACK_FRAMES    = 5
+; MOD: Horizontal knockback distance per knockback frame; larger throws a hit monster farther.
+YOYO_KNOCKBACK_STEPS     = 8
+YOYO_VERTICAL_OFFSET     = &0B
+YOYO_HEAD_X_OFFSET       = 2
+CLIMB_CORRECTION_RANDOM_MAX = 2
+
+; Trogg-specific animation/physics constants recovered from the movement state
+; machines.  ObjectDY is signed: the initial positive jump impulse is reduced
+; once per update until it becomes negative (falling).
+SPRITE_TROGG_CLIMB_A       = &13
+SPRITE_TROGG_CLIMB_B       = &14
+SPRITE_TROGG_YOYO_RIGHT    = &3C
+SPRITE_TROGG_YOYO_LEFT     = &3D
+CLIMB_SPRITE_TOGGLE_MASK   = &07
+; MOD: Initial upward jump velocity. Larger positive values produce a higher/longer jump.
+PLAYER_INITIAL_JUMP_DY     = &05
+PLAYER_Y_CEILING           = &DE
+; MOD: Fatal-fall threshold, signed &F9=-7. Lower/more-negative threshold permits faster falls before death.
+PLAYER_MAX_SAFE_FALL_DY    = &F9             ; signed -7; faster landings kill
+PLAYER_LANDING_Y_ADJUST    = &05
+PLAYER_X_MIN               = &04
+PLAYER_X_MAX_EXCLUSIVE     = &C4
+SCROLL_LEFT_TRIGGER_MIN    = &28
+SCROLL_LEFT_TRIGGER_MAX    = &9F             ; exclusive
+SCROLL_RIGHT_TRIGGER_MIN   = &29
+SCROLL_RIGHT_TRIGGER_MAX   = &A0             ; exclusive
+
+; Text/high-score format.
+HIGH_SCORE_COUNT         = 6
+HIGH_SCORE_RECORD_SIZE   = 6
+HIGH_SCORE_INITIALS      = 3
+HIGH_SCORE_SCORE_HI       = 3
+HIGH_SCORE_SCORE_MID      = 4
+HIGH_SCORE_SCORE_LO       = 5
+HIGH_SCORE_TABLE_BYTES    = HIGH_SCORE_COUNT*HIGH_SCORE_RECORD_SIZE
+HIGH_SCORE_LAST_RECORD    = (HIGH_SCORE_COUNT-1)*HIGH_SCORE_RECORD_SIZE
+HIGH_SCORE_LAST_BYTE      = HIGH_SCORE_TABLE_BYTES-1
+HIGH_SCORE_ACCEPT_DELAY   = &14
+HIGH_SCORE_RETRY_DELAY    = &05
+HIGH_SCORE_FINISH_DELAY   = &50
+ASCII_BACKSPACE          = &08
+ASCII_SPACE              = &20
+ASCII_ZERO               = &30
+ASCII_A                  = &41
+ASCII_TILDE              = &7E
+ASCII_COLON               = &3A
+ASCII_COMMA               = &2C
+INLINE_STREAM_END        = &EA
+
+SOUND_BUFFER_FIRST       = 4
+SOUND_BUFFER_END         = 9              ; exclusive
+PRNG_INCREMENT           = &63
+PRNG_TOP_BIT             = &80
+; MOD: Hazard mix uses RandomUpToA(N): result 0=dagger, non-zero=balloon. N=3 gives 25% daggers / 75% balloons.
+HAZARD_RANDOM_MAX        = 3
+PLAYER_WALK_FRAME_COUNT  = 4
+PLAYER_WALK_FRAME_LAST   = PLAYER_WALK_FRAME_COUNT-1
+YOYO_HEAD_FRAME_COUNT    = 4
+VERTICAL_INPUT_STEP      = 3
+STARTUP_SAFE_STACK_TOP   = &A2
+GAME_ZERO_PAGE_LAST      = &97
+TITLE_RANDOM_SPRITE_MAX  = 3               ; RandomUpToA => four table entries
+; MOD: Number of random title-screen sprite placements before the transition sequence.
+TITLE_RANDOM_DRAW_COUNT  = &7D
+TITLE_CLIP_LEFT          = &0C
+TITLE_CLIP_RIGHT         = &44
+TITLE_TRANSITION_DELAY   = &4B
+TITLE_FINAL_Y            = &52
+TITLE_FINAL_WAIT         = &FA
+; MOD: Cast/credits timeout. Each chunk is 256 VSync ticks (~5.12 s), so 7 is ~35.8 s.
+TITLE_TIMEOUT_CHUNKS     = 7               ; seven * 256 tick waits
+WAIT_256_TICKS           = &00             ; WaitFramesOrInput treats zero as 256 via Y wrap
+TRANSITION_FRAME_DELAY   = &04
+TRANSITION_TROGG_SLOT     = 0
+TRANSITION_SCRUBBLY_SLOT  = 1
+TRANSITION_TROGG_SEQUENCE_INDEX    = 1
+TRANSITION_SCRUBBLY_SEQUENCE_INDEX = 6
+TRANSITION_Y             = &52
+TRANSITION_TITLE_FRAMES  = &1F
+SCREEN_COMPLETE_FRAMES   = &3C
+; MOD: Delay after player death before lives/restart handling, in 50 Hz game ticks.
+PLAYER_DEATH_DELAY_TICKS = &82
+CONTROL_UNSELECTED       = &FF
+LADDER_PROBE_BOTTOM_OFFSET = &0E
+LADDER_PROBE_HEIGHT        = &1E
+SIGNED_UNIT_FLIP_MASK      = &FE
+PLAYER_FLOOR_PROBE_DY_LIMIT = &F6           ; signed -10; collision probe threshold
+HIGH_SCORE_SPACING_TABS    = &0B
+TITLE_RANDOM_CHAR_SEED_1   = &63
+TITLE_RANDOM_CHAR_SEED_2   = &2A
+TITLE_RANDOM_CHAR_SEED_3   = &F7
+MODE1_PREVIOUS_ROW_LOW_DELTA  = &78
+MODE1_PREVIOUS_ROW_HIGH_DELTA = &02
+MODE1_NEGATIVE_X_HI_ADJUST     = &07
+STARTUP_TRAVERSAL_COUNT_SEED = &2A
+STARTUP_TRAVERSAL_PTR_LO_SEED = &C8
+STARTUP_TRAVERSAL_PTR_HI_SEED = &D4
+; MOD: Initial PRNG seed. Changing it alters the repeatable starting random sequence/timing-dependent hazard/title choices.
+STARTUP_RANDOM_SEED           = &30
+ENGINE_PREFIX_INITIAL_STATE   = &40
+MOS_WORKSPACE_CLEAR_LAST      = &0F
+OSBYTE_KEYBOARD_STATUS_X      = &20
+OSBYTE_KEYBOARD_STATUS_Y      = &CF
+OSBYTE_ADC_8BIT_X             = &08
+OSBYTE_FLASH_MARK_X           = &28
+OSBYTE_FLASH_SPACE_X          = &14
+USER_VIA_IER_INITIAL          = &E0
+USER_VIA_ACR_INITIAL          = &40
+SYSTEM_VIA_IER_INITIAL        = &01
+VDU_BELL                 = &07
+VDU_BACKSPACE            = &08
+VDU_CLEAR_TEXT           = &0C
+VDU_COLOUR               = &11
+VDU_PALETTE              = &13
+VDU_MODE                 = &16
+VDU_DEFAULT_WINDOWS      = &1A
+VDU_TEXT_WINDOW          = &1C
+VDU_HOME                 = &1E
+VDU_TAB                  = &1F
+VDU_CURSOR_RIGHT         = &09
+
+; MODE 1 geometry and CRTC/display-ring constants.  One horizontal byte-column
+; consists of eight interleaved scanline bytes; the 20 KB screen ring runs from
+; &3000 to &7FFF and therefore wraps by &5000 bytes.
+MODE1_SCREEN_BASE_HI          = &30
+MODE1_SCREEN_RING_SIZE_HI     = &50
+MODE1_VIEWPORT_COLUMNS        = &50             ; 80 byte-columns = 320 pixels
+MODE1_RIGHTMOST_COLUMN        = MODE1_VIEWPORT_COLUMNS-1
+MODE1_TEXT_ROWS               = &20             ; 32 character rows
+MODE1_SCANLINES_PER_CHAR      = &08
+MODE1_SCROLL_RIGHT_DELTA_LO   = &08
+MODE1_SCROLL_LEFT_DELTA_LO    = &F8             ; -8
+MODE1_SCROLL_LEFT_DELTA_HI    = &FF
+MODE1_SCROLL_RIGHT_DELTA_HI   = &00
+MODE1_TEXT_ROW_LOW_ADJUST     = &79             ; +8 already occurred: net +&80
+MODE1_TEXT_ROW_HIGH_ADJUST    = &02             ; together gives +&280 bytes
+VDU_ROW_ADDRESS_TABLE_PTR     = &E0             ; MOS VDU workspace pointer used here
+
+; Raster/interrupt timing constants.
+VIA_IFR_TIMER2                = &20
+RASTER_TIMER_RELOAD_LO        = &50
+RASTER_TIMER_RELOAD_HI        = &46
+RASTER_Y_FLIP_OFFSET          = &1C
+RASTER_TIMER_COMPARE_MASK     = &3F
+MUSIC_TIMER_RELOAD_LO         = &A8
+MUSIC_TIMER_RELOAD_HI         = &61
+
+; Score formatting/life-award bit.  Toggling bit 5 of ScoreMid occurs at each
+; 20,000-point boundary in the displayed six-digit score.
+; MOD: Extra-life cadence is detected by bit &20 toggling in packed-BCD ScoreMid (the original 20,000-point boundary). Use only a meaningful BCD bit if experimenting.
+EXTRA_LIFE_SCORE_BIT          = &20
+BCD_NIBBLE_MASK               = &0F
+
 SPRITE_SCRUBBLY        = &12
 SPRITE_GEM             = &16
 SPRITE_KEY             = &17
 SPRITE_HOOTER          = &1D
 SPRITE_POGLET          = &1E
+SPRITE_FRAK_LOGO       = &22
 SPRITE_BULB            = &23
 SPRITE_DAGGER          = &25
 SPRITE_DAGGER_FLIPPED  = &26
 SPRITE_BALLOON         = &27
 SPRITE_TROGG_FRAME0    = &34
+SPRITE_TROGG_FRAME1    = &35
+SPRITE_TROGG_FRAME2    = &36
+SPRITE_TROGG_FRAME3    = &37
+SPRITE_TROGG_FRAME4    = &38
+SPRITE_TROGG_FRAME5    = &39
+SPRITE_TROGG_FRAME6    = &3A
+SPRITE_TROGG_FRAME7    = &3B
+SPRITE_TROGG_DEATH     = &5B
+SPRITE_YOYO_HEAD_PHASE0 = &0E
+SPRITE_YOYO_HEAD_PHASE1 = &0D
+SPRITE_YOYO_HEAD_PHASE2 = &0F
+SPRITE_YOYO_HEAD_PHASE3 = &10
+SPRITE_YOYO_STRING0     = &28
+SPRITE_YOYO_STRING1     = &29
+SPRITE_YOYO_STRING2     = &2A
+SPRITE_YOYO_STRING3     = &2B
+SPRITE_YOYO_STRING4     = &2C
+SPRITE_YOYO_STRING5     = &2D
+SPRITE_YOYO_STRING6     = &2E
+SPRITE_YOYO_STRING7     = &2F
+SPRITE_YOYO_STRING8     = &30
+SPRITE_YOYO_STRING9     = &31
+SPRITE_YOYO_STRING10    = &32
+SPRITE_YOYO_STRING11    = &33
+
+; Title/cast sprite placement in Frak logical sprite coordinates.
+TITLE_LOGO_X             = &22
+TITLE_LOGO_Y             = &EA
+TITLE_TROGG_X            = &16
+TITLE_TROGG_Y            = &B7
+TITLE_SCRUBBLY_X         = &15
+TITLE_SCRUBBLY_Y         = &85
+TITLE_HOOTER_X           = &15
+TITLE_HOOTER_Y           = &6B
+TITLE_POGLET_X           = &16
+TITLE_POGLET_Y           = &58
+
+; Theme-specific structural sprites.  Names describe their role in the level
+; mapper rather than asserting a more specific visual identity than the code proves.
+SPRITE_THEME_G_FLOOR0   = &15
+SPRITE_THEME_G_FLOOR1   = &3E
+SPRITE_THEME_G_FLOOR2   = &3F
+SPRITE_THEME_G_FLOOR3   = &40
+SPRITE_THEME_G_FLOOR4   = &41
+SPRITE_THEME_G_FLOOR5   = &42
+SPRITE_THEME_G_FLOOR6   = &43
+SPRITE_THEME_G_LADDER0  = &4A
+SPRITE_THEME_G_LADDER1  = &4B
+SPRITE_THEME_G_LADDER2  = &4C
+SPRITE_THEME_G_LADDER3  = &4D
+SPRITE_THEME_J_FLOOR0   = &44
+SPRITE_THEME_J_FLOOR1   = &45
+SPRITE_THEME_J_FLOOR2   = &46
+SPRITE_THEME_J_FLOOR3   = &47
+SPRITE_THEME_J_FLOOR4   = &48
+SPRITE_THEME_J_FLOOR5   = &49
+SPRITE_THEME_J_LADDER0  = &00
+SPRITE_THEME_J_LADDER1  = &54
+SPRITE_THEME_J_LADDER2  = &55
+SPRITE_THEME_J_LADDER3  = &56
+SPRITE_THEME_C_FLOOR0   = &11
+SPRITE_THEME_C_FLOOR1   = &4E
+SPRITE_THEME_C_FLOOR2   = &4F
+SPRITE_THEME_C_FLOOR3   = &50
+SPRITE_THEME_C_FLOOR4   = &51
+SPRITE_THEME_C_FLOOR5   = &52
+SPRITE_THEME_C_FLOOR6   = &53
+SPRITE_THEME_C_LADDER0  = &24
+SPRITE_THEME_C_LADDER1  = &57
+SPRITE_THEME_C_LADDER2  = &58
+SPRITE_THEME_C_LADDER3  = &59
+SPRITE_THEME_C_LADDER4  = &5A
+
+; Packed-level variant meanings where the queue defines a semantic object type.
+MONSTER_VARIANT_LEVEL_A_SCRUBBLY = 0
+MONSTER_VARIANT_LEVEL_B_POGLET   = 1
+MONSTER_VARIANT_LEVEL_C_HOOTER   = 0
+COLLECTIBLE_VARIANT_KEY  = 0
+COLLECTIBLE_VARIANT_BULB = 1
+COLLECTIBLE_VARIANT_GEM  = 2
+
 
 ; Renderer aliases for zero-page locations which numerically overlap some of
 ; the sprite IDs above.  Keeping separate names prevents an immediate sprite
@@ -258,7 +734,6 @@ RowRoutineHi           = &1D
 RendererX              = &21
 RendererY              = &22
 Mode1RowOffset         = &23
-TempCounter34          = &34
 
 ; Pointers to the six 92-entry sprite descriptor arrays. Startup loads these
 ; with the addresses of the actual labels in the &1FFD section below.
@@ -286,34 +761,40 @@ ViewportXOffset         = &10
 ; &01A4-&01FF - OSWORD 7 sound blocks and live self-modifying renderer stub
 ; =============================================================================
 ORG REGION_RENDERER_STUB
+; SECTION: SOUND PARAMETER BLOCKS + LIVE RENDERER STUB
+; This lives in the upper part of the hardware stack page. Startup deliberately
+; sets SP=&A2 so &01A4-&01FF can be used safely. The first 32 bytes are OSWORD 7
+; sound parameter blocks; the following eight JSRs are patched at runtime to the
+; selected MODE 1 pixel operator. This region must remain writable.
 ; BBC OSWORD 7 uses four 16-bit fields: channel, amplitude/envelope, pitch,
 ; duration.  Frak keeps four parameter blocks here and changes pitch in two of
 ; them at runtime.
+; MOD: The four OSWORD 7 blocks below control the basic timbre/pitch/duration of music, yo-yo hit, movement and collect sounds.
 MusicSoundBlock:
-        EQUW &0013                  ; channel
-        EQUW &0001                  ; amplitude / envelope selector
+        EQUW SOUND_CHANNEL_MUSIC    ; channel
+        EQUW SOUND_ENVELOPE_MUSIC   ; amplitude / envelope selector
 MusicPitch:
         EQUW &0000                  ; low byte replaced by MusicStep
-        EQUW &00FF                  ; duration
+        EQUW SOUND_DURATION_DEFAULT ; duration
 
 YoyoHitSoundBlock:
-        EQUW &0011
-        EQUW &0003
+        EQUW SOUND_CHANNEL_YOYO
+        EQUW SOUND_ENVELOPE_YOYO_HIT
         EQUW &0078
-        EQUW &00FF
+        EQUW SOUND_DURATION_DEFAULT
 
 PlayerMoveSoundBlock:
-        EQUW &0012
-        EQUW &0002
+        EQUW SOUND_CHANNEL_MOVE
+        EQUW SOUND_ENVELOPE_MOVE
 PlayerMovePitch:
         EQUW &0000                  ; set from the player's vertical position
-        EQUW &00FF
+        EQUW SOUND_DURATION_DEFAULT
 
 CollectSoundBlock:
-        EQUW &0011
-        EQUW &0004
+        EQUW SOUND_CHANNEL_YOYO
+        EQUW SOUND_ENVELOPE_COLLECT
         EQUW &005A
-        EQUW &00FF
+        EQUW SOUND_DURATION_DEFAULT
 
 ; Eight unrolled calls draw one MODE 1 byte-column.  SpriteRenderSetup patches
 ; every JSR operand to one of the six pixel operators at &1F41-&1F98, then
@@ -341,20 +822,20 @@ RendererRowCall7:
 RendererPreviousCharacterRow:
         SEC
         LDA ScreenPtrLo
-        SBC #&78
+        SBC #MODE1_PREVIOUS_ROW_LOW_DELTA
         STA ScreenPtrLo
         LDA ScreenPtrHi
-        SBC #&02
+        SBC #MODE1_PREVIOUS_ROW_HIGH_DELTA
         STA ScreenPtrHi
         CLC
         TYA
         ADC ScreenPtrLo
         TXA
         ADC ScreenPtrHi
-        CMP #&30
+        CMP #MODE1_SCREEN_BASE_HI
         BCS RendererRowCall0
         LDA ScreenPtrHi
-        ADC #&50
+        ADC #MODE1_SCREEN_RING_SIZE_HI
         STA ScreenPtrHi
         BCC RendererRowCall0
 
@@ -370,10 +851,17 @@ RendererStubTail:
 ; &0380-&048F - title/game entry
 ; =============================================================================
 ORG REGION_TITLE
+; SECTION: CAST/CREDITS ENTRY AND TEMPORARY TITLE CODE
+; This is the first runtime entry after startup. It displays the cast/credits
+; screen and waits for start input. During NewGame the object arrays beginning
+; at &0368 deliberately overwrite most/all of this disposable title region.
 ; -----------------------------------------------------------------------------
 ; Runtime &0380: installed game/title entry.
 ; -----------------------------------------------------------------------------
 Title_RuntimeEntry:
+; CONTRACT: title/attract runtime entry.
+; Entry: startup has installed vectors, sprite-table pointers and MOS state.
+; Exit: falls into title/attract flow; interrupts are enabled here.
 RuntimeGameEntry:
         LDX #&01
         LDY #&00
@@ -390,25 +878,25 @@ RuntimeGameEntry:
 
 ; Draw the five cast sprites alongside the text above.
 Title_DrawCast:
-        LDA #&22
-        LDX #&22
-        LDY #&EA
+        LDA #SPRITE_FRAK_LOGO
+        LDX #TITLE_LOGO_X
+        LDY #TITLE_LOGO_Y
         JSR DrawSpriteAt
-        LDA #&35
-        LDX #&16
-        LDY #&B7
+        LDA #SPRITE_TROGG_FRAME1
+        LDX #TITLE_TROGG_X
+        LDY #TITLE_TROGG_Y
         JSR DrawSpriteAt
         LDA #SPRITE_SCRUBBLY
-        LDX #&15
-        LDY #&85
+        LDX #TITLE_SCRUBBLY_X
+        LDY #TITLE_SCRUBBLY_Y
         JSR DrawSpriteAt
         LDA #SPRITE_HOOTER
-        LDX #&15
-        LDY #&6B
+        LDX #TITLE_HOOTER_X
+        LDY #TITLE_HOOTER_Y
         JSR DrawSpriteAt
         LDA #SPRITE_POGLET
-        LDX #&16
-        LDY #&58
+        LDX #TITLE_POGLET_X
+        LDY #TITLE_POGLET_Y
         JSR DrawSpriteAt
         JSR PrintInlineStream
 
@@ -423,21 +911,21 @@ Title_DrawCast:
         EQUB &04,&00,&00,&E0,&00,&19,&01,&00,&05,&00,&00,&EA    ; runtime &046F
 
 Title_EnterAttractLoop:
-        JSR TitleInitEightRecords
+        JSR WaitForTitleTimeoutOrStart
         JMP GameStartCheck
 
-; Initialise eight records via the helper at runtime &1AC7.  &7E retains the
-; caller's hardware stack pointer for the title/start machinery.
-Title_InitEightRecordsSource:
-TitleInitEightRecords:
+; Hold the cast/credits screen for seven full 256-tick chunks unless the player
+; starts first.  PollAttractInput uses SavedAbortStackPtr to discard the nested
+; WaitFramesOrInput return frames and return directly here with carry set.
+WaitForTitleTimeoutOrStart:
         TSX
-        STX &7E
-        LDX #&07
-Title_InitEightLoop:
-        LDA #&00
+        STX SavedAbortStackPtr
+        LDX #TITLE_TIMEOUT_CHUNKS
+TitleTimeout_ChunkLoop:
+        LDA #WAIT_256_TICKS
         JSR WaitFramesOrInput
         DEX
-        BNE Title_InitEightLoop
+        BNE TitleTimeout_ChunkLoop
         CLC
         RTS
 
@@ -446,6 +934,10 @@ Title_InitEightLoop:
 ; &0507-&07FE - music/effect streams followed by three compact level streams
 ; =============================================================================
 ORG REGION_SOUND_LEVELS
+; SECTION: MUSIC STREAMS + THREE BASE LEVEL DEFINITIONS
+; The first part is read-only encoded music/effect data. The rest is the tagged
+; A/B/C level data consumed by LoadLevelStream. Gameplay never executes bytes
+; from this region.
 SoundStream:
 ;
 ; MusicStep uses offsets stored at &8B-&8F.  Each stream ends with a byte whose
@@ -454,8 +946,9 @@ SoundStream:
 ;   bits 2..6 = pitch written to MusicSoundBlock
 ;   bits 0..1 = duration code, producing 4,8,12 or 16 countdown units
 ;   bit 7     = end-of-stream; playback loops to the stream start.  Death and
-;               screen-complete streams additionally release GameState2F.
+;               screen-complete streams additionally release MusicInhibitFlag.
 
+; MOD: Music streams can be edited in place without changing the engine.  Preserve the bit-7 terminator convention; see docs/MUSIC_DECODE.md.
 TuneScreenA:                         ; base screen A music
         EQUB &21,&21,&29,&31,&36,&22,&29,&36,&21,&20,&29,&36,&22,&29,&35,&3D
         EQUB &41,&45,&4A,&36,&3D,&4A,&28,&28,&2C,&30,&34,&4A,&35,&34,&3D,&48
@@ -487,29 +980,30 @@ TuneScreenComplete:                         ; screen-complete cue
 ; Record byte = (count << 3) | variant, followed by count X/Y pairs.
 ; A zero record ends the current queue; &FF ends the level.
 ; -----------------------------------------------------------------------------
+; MOD: Level layouts are directly editable here: update a record count when adding/removing X/Y coordinate pairs. Keep each queue's zero terminator and the final LEVEL_END.
 LevelA:
         EQUB "C"                  ; original screen/theme selector
 
         EQUB "T"                  ; Trogg/player queue
         EQUB (1<<3)|0              ; count=1, variant=0: Trogg start position
         EQUB &0A,&30
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "M"                  ; monster queue
-        EQUB (7<<3)|0              ; count=7, variant=0: Scrubbly objects
+        EQUB (7<<3)|MONSTER_VARIANT_LEVEL_A_SCRUBBLY  ; count=7: Scrubbly objects
         EQUB &33,&BC,&7B,&7E,&4C,&30,&69,&30
         EQUB &33,&70,&17,&BC,&A7,&BC
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "K"                  ; collectible queue
-        EQUB (3<<3)|0              ; count=3, variant=0: keys
+        EQUB (3<<3)|COLLECTIBLE_VARIANT_KEY  ; count=3: keys
         EQUB &A8,&2E,&7B,&2F,&5B,&BB
-        EQUB (1<<3)|1              ; count=1, variant=1: light bulbs (+time)
+        EQUB (1<<3)|COLLECTIBLE_VARIANT_BULB ; count=1: light bulbs (+time)
         EQUB &3D,&BC
-        EQUB (5<<3)|2              ; count=5, variant=2: gems (+score)
+        EQUB (5<<3)|COLLECTIBLE_VARIANT_GEM  ; count=5: gems (+score)
         EQUB &2A,&2F,&14,&7D,&A8,&7D,&69,&7D
         EQUB &4C,&7D
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "F"                  ; floor/platform queue
         EQUB (31<<3)|0              ; count=31, variant=0: floor/platform variant 0
@@ -528,7 +1022,7 @@ LevelA:
         EQUB &09,&7C
         EQUB (2<<3)|5              ; count=2, variant=5: floor/platform variant 5
         EQUB &09,&BB,&28,&BB
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "L"                  ; ladder/rope queue
         EQUB (8<<3)|0              ; count=8, variant=0: ladder/rope variant 0
@@ -542,37 +1036,38 @@ LevelA:
         EQUB (5<<3)|3              ; count=5, variant=3: ladder/rope variant 3
         EQUB &68,&38,&0A,&37,&29,&37,&4D,&37
         EQUB &7B,&38
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
-        EQUB &FF                  ; end of level stream
+        EQUB LEVEL_END            ; end of level stream
 
 ; -----------------------------------------------------------------------------
 ; Level B: compact tagged object stream.
 ; Record byte = (count << 3) | variant, followed by count X/Y pairs.
 ; A zero record ends the current queue; &FF ends the level.
 ; -----------------------------------------------------------------------------
+; MOD: Level B uses the same tagged format as Level A; coordinates are logical Frak X/Y units, not raw MODE 1 addresses.
 LevelB:
         EQUB "J"                  ; original screen/theme selector
 
         EQUB "T"                  ; Trogg/player queue
         EQUB (1<<3)|0              ; count=1, variant=0: Trogg start position
         EQUB &07,&38
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "M"                  ; monster queue
-        EQUB (8<<3)|1              ; count=8, variant=1: Poglet objects
+        EQUB (8<<3)|MONSTER_VARIANT_LEVEL_B_POGLET    ; count=8: Poglet objects
         EQUB &6F,&2F,&64,&89,&16,&90,&7D,&2A
         EQUB &42,&57,&2F,&28,&48,&E6,&2A,&CD
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "K"                  ; collectible queue
-        EQUB (4<<3)|0              ; count=4, variant=0: keys
+        EQUB (4<<3)|COLLECTIBLE_VARIANT_KEY  ; count=4: keys
         EQUB &05,&90,&34,&42,&87,&17,&86,&94
-        EQUB (1<<3)|1              ; count=1, variant=1: light bulbs (+time)
+        EQUB (1<<3)|COLLECTIBLE_VARIANT_BULB ; count=1: light bulbs (+time)
         EQUB &5F,&D5
-        EQUB (2<<3)|2              ; count=2, variant=2: gems (+score)
+        EQUB (2<<3)|COLLECTIBLE_VARIANT_GEM  ; count=2: gems (+score)
         EQUB &04,&BC,&21,&A2
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "F"                  ; floor/platform queue
         EQUB (6<<3)|0              ; count=6, variant=0: floor/platform variant 0
@@ -595,7 +1090,7 @@ LevelB:
         EQUB &6C,&79,&6C,&A1,&84,&94,&37,&28
         EQUB &33,&42,&35,&35,&19,&CB,&16,&D7
         EQUB &1F,&A1
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "L"                  ; ladder/rope queue
         EQUB (13<<3)|0              ; count=13, variant=0: ladder/rope variant 0
@@ -609,38 +1104,39 @@ LevelB:
         EQUB &64,&7D
         EQUB (1<<3)|3              ; count=1, variant=3: ladder/rope variant 3
         EQUB &72,&67
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
-        EQUB &FF                  ; end of level stream
+        EQUB LEVEL_END            ; end of level stream
 
 ; -----------------------------------------------------------------------------
 ; Level C: compact tagged object stream.
 ; Record byte = (count << 3) | variant, followed by count X/Y pairs.
 ; A zero record ends the current queue; &FF ends the level.
 ; -----------------------------------------------------------------------------
+; MOD: Level C uses theme G. Monster variant 0 maps to Hooter here; variant numbers are theme-local, not global sprite IDs.
 LevelC:
         EQUB "G"                  ; original screen/theme selector
 
         EQUB "T"                  ; Trogg/player queue
         EQUB (1<<3)|0              ; count=1, variant=0: Trogg start position
         EQUB &06,&3A
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "M"                  ; monster queue
-        EQUB (10<<3)|0              ; count=10, variant=0: Hooter objects
+        EQUB (10<<3)|MONSTER_VARIANT_LEVEL_C_HOOTER ; count=10: Hooter objects
         EQUB &40,&94,&0F,&B0,&1F,&91,&2E,&4A
         EQUB &99,&1F,&B0,&90,&21,&4A,&4F,&1F
         EQUB &85,&1F,&7D,&C8
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "K"                  ; collectible queue
-        EQUB (4<<3)|0              ; count=4, variant=0: keys
+        EQUB (4<<3)|COLLECTIBLE_VARIANT_KEY  ; count=4: keys
         EQUB &0D,&90,&57,&6F,&8A,&C2,&B6,&8F
-        EQUB (4<<3)|1              ; count=4, variant=1: light bulbs (+time)
+        EQUB (4<<3)|COLLECTIBLE_VARIANT_BULB ; count=4: light bulbs (+time)
         EQUB &18,&6D,&13,&6D,&5A,&D1,&24,&16
-        EQUB (4<<3)|2              ; count=4, variant=2: gems (+score)
+        EQUB (4<<3)|COLLECTIBLE_VARIANT_GEM  ; count=4: gems (+score)
         EQUB &19,&B0,&7C,&8C,&45,&28,&8F,&1F
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "F"                  ; floor/platform queue
         EQUB (20<<3)|0              ; count=20, variant=0: floor/platform variant 0
@@ -662,7 +1158,7 @@ LevelC:
         EQUB &02,&39,&3C,&93
         EQUB (3<<3)|6              ; count=3, variant=6: floor/platform variant 6
         EQUB &4F,&A7,&3C,&DA,&82,&DF
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
         EQUB "L"                  ; ladder/rope queue
         EQUB (6<<3)|0              ; count=6, variant=0: ladder/rope variant 0
@@ -675,15 +1171,19 @@ LevelC:
         EQUB (5<<3)|3              ; count=5, variant=3: ladder/rope variant 3
         EQUB &06,&56,&41,&3A,&6E,&60,&9D,&56
         EQUB &9F,&56
-        EQUB 0                    ; end this queue block
+        EQUB LEVEL_QUEUE_END      ; end this queue block
 
-        EQUB &FF                  ; end of level stream
+        EQUB LEVEL_END            ; end of level stream
 ; =============================================================================
 ; &0880-&08A3 - high-score table
 ; =============================================================================
 ORG REGION_HIGH_SCORES
+; SECTION: WRITABLE HIGH-SCORE TABLE
+; Six 6-byte records live here for the whole game: 3 initials + 3 packed-BCD
+; score bytes. HighScoreInsert edits this table in place.
 ; Six high-score records: three displayed initials followed by a three-byte
 ; packed-BCD score.  The first initials are preserved exactly as released.
+; MOD: The six initial high-score records may be changed directly: 3 ASCII initials followed by 3 packed-BCD score bytes.
 HighScores:
         EQUB &76,&26,&6F, &00,&01,&00
         EQUB "NIK",       &00,&01,&00
@@ -695,6 +1195,10 @@ HighScores:
 ; &0A00-&0AFF - MODE 1 lookup masks
 ; =============================================================================
 ORG REGION_MODE1_MASKS
+; SECTION: MODE 1 PIXEL-MASK LOOKUP PAGE
+; Exactly 256 bytes used by the sprite renderer for fast masking. The low byte
+; of a pixel value indexes this table directly, so the region must remain page
+; aligned even though the source is otherwise relocatable.
 Mode1Masks:
         ; Pixel bytes are used directly as the low byte of an indirect lookup
         ; pointer, so this 256-byte table must begin on a page boundary.
@@ -719,20 +1223,24 @@ EQUB &FF,&EE,&DD,&CC,&BB,&AA,&99,&88,&77,&66,&55,&44,&33,&22,&11,&00
 ; &0B00-&0CF2 - queue descriptors and core game routines
 ; =============================================================================
 ORG REGION_CORE
+; SECTION: OBJECT QUEUES + TOP-LEVEL GAME LIFECYCLE
+; Defines the seven object pools and compact draw/erase entry points, then owns
+; attract -> new game -> screen init -> MainGameFrame -> death/screen-complete
+; progression. TimerAndKeys also lives here because it is called every frame.
 QueueDescriptors:
 ; Queue descriptors.  The first byte of each record is also the previous
 ; record's exclusive end slot, so the seven four-byte records overlap by one
 ; byte.  Flags are consumed by CollisionScan with the masks named above.
 QueueTroggDescriptor:
-        EQUB TROGG_FIRST_SLOT,&00,"T"
+        EQUB TROGG_FIRST_SLOT,COLLIDE_NONE,"T"
 QueueDaggerDescriptor:
         EQUB DAGGER_FIRST_SLOT,COLLIDE_PLAYER_HAZARD|COLLIDE_YOYO,"D"
 QueueBalloonDescriptor:
         EQUB BALLOON_FIRST_SLOT,COLLIDE_PLAYER_HAZARD|COLLIDE_YOYO,"B"
 QueueCollectibleDescriptor:
-        EQUB COLLECTIBLE_FIRST_SLOT,COLLIDE_COLLECTIBLE|&40,"K"
+        EQUB COLLECTIBLE_FIRST_SLOT,COLLIDE_COLLECTIBLE|COLLIDE_RESERVED_40,"K"
 QueueMonsterDescriptor:
-        EQUB MONSTER_FIRST_SLOT,COLLIDE_PLAYER_HAZARD|COLLIDE_YOYO|COLLIDE_YOYO_DARK|&40,"M"
+        EQUB MONSTER_FIRST_SLOT,COLLIDE_PLAYER_HAZARD|COLLIDE_YOYO|COLLIDE_YOYO_DARK|COLLIDE_RESERVED_40,"M"
 QueueFloorDescriptor:
         EQUB FLOOR_FIRST_SLOT,COLLIDE_FLOOR,"F"
 QueueLadderDescriptor:
@@ -740,66 +1248,61 @@ QueueLadderDescriptor:
         EQUB OBJECT_SLOT_END
         EQUB 0,0                    ; original padding at &0B16-&0B17
 
-; Four compact entries select a sprite/object operation mode in A.  The &00 and
-; &C0 entries deliberately overlap: byte &CD is the CMP abs opcode seen only by
-; ObjectMode00, while the following A9 C0 bytes are LDA #&C0 when entered at
-; ObjectModeC0.  This preserves Orlando's original byte-saving trick.
-Core_ObjectMode40:
-ObjectMode40:
-        LDA #&40
-        BPL Core_ApplyObjectMode
-Core_ObjectMode80:
-ObjectMode80:
-        LDA #&80
-        BMI Core_ApplyObjectMode
-Core_ObjectMode00:
-ObjectMode00:
-        LDA #&00
+; Four compact entries select a sprite/object operation mode in A.  DRAW and
+; ERASE_AND_COLLIDE deliberately overlap: byte &CD is a CMP-abs opcode seen only
+; by DrawObject, while the following A9 C0 bytes form LDA #OBJECT_RENDER_ERASE_AND_COLLIDE
+; at the overlapping entry.  This preserves Orlando's original byte-saving trick.
+DrawObjectAndScanCollisions:
+        LDA #OBJECT_RENDER_DRAW_AND_COLLIDE
+        BPL ApplyObjectOperation
+EraseObject:
+        LDA #OBJECT_RENDER_ERASE
+        BMI ApplyObjectOperation
+DrawObject:
+        LDA #OBJECT_RENDER_DRAW
         EQUB &CD                    ; CMP abs opcode; operand is following A9 C0
-Core_ObjectModeC0:
-ObjectModeC0:
-        LDA #&C0
-Core_ApplyObjectMode:
+EraseObjectAndScanCollisions:
+        LDA #OBJECT_RENDER_ERASE_AND_COLLIDE
+ApplyObjectOperation:
         JSR LoadObject
-        BCS Core_ObjectModeDone
-        STX SavedObjectIndex
+        BCS ApplyObjectOperation_Return
+        STX RenderCallerObjectSlot
         JSR ProcessSprite
-        LDX SavedObjectIndex
-Core_ObjectModeDone:
+        LDX RenderCallerObjectSlot
+ApplyObjectOperation_Return:
         RTS
 
-Core_DrawSpriteAt:
+; CONTRACT: draw one sprite at logical coordinates.
+; Entry: A=sprite descriptor index, X=logical X, Y=logical Y.
+; Effect: updates CurrentSpriteX/Y and dispatches ProcessSprite in draw mode.
 DrawSpriteAt:
         STX CurrentSpriteX
         STY CurrentSpriteY
         TAY
-        LDA #&00
+        LDA #OBJECT_RENDER_DRAW
         JMP ProcessSprite
 
-Core_LoadObject:
 LoadObject:
         LDY ObjectX,X
         STY CurrentSpriteX
         LDY ObjectY,X
         STY CurrentSpriteY
         LDY ObjectSprite,X
-        CPY #&5C
+        CPY #SPRITE_DESCRIPTOR_COUNT
         RTS
 
 ; Attract/title loop.  TitleStartSequence returns carry set when a game starts.
-Core_GameStartTitleLoop:
 GameStartTitleLoop:
         JSR ResetCountdownDivider
-        LDA #&FF
-        STA GameState2F
-        STA ControlMode
+        LDA #CONTROL_UNSELECTED
+        STA MusicInhibitFlag
+        STA ControlScheme
         JSR TitleStartSequence
 GameStartCheck:
-        BCC Core_GameStartTitleLoop
+        BCC GameStartTitleLoop
 
-Core_NewGame:
-Core_NewGameRuntime:
-        LDA #&03
+NewGame:
+        LDA #INITIAL_LIVES
         STA Lives
         LDA #&00
         STA BaseScreen
@@ -809,13 +1312,15 @@ Core_NewGameRuntime:
         STA ScoreHi
 
 ; Initialise one of the three base screens and the current 0..7 transform cycle.
-Core_StartScreen:
+; CONTRACT: initialise the current base screen/transform combination.
+; Uses: BaseScreen (0..2), TransformCycle (0..7).
+; Effect: selects level/tune/timer, clears object state, decodes/draws level, resets hazards.
 StartScreen:
         LDX BaseScreen
         LDY TransformCycle
         JSR DisplayInit
         SEC
-        LDA #&0B
+        LDA #HAZARD_BASE_RELOAD
         SBC TransformCycle
         ASL A
         ASL A
@@ -832,193 +1337,195 @@ StartScreen:
 
         LDX #&00
         STX WalkAnimationPhase
-        STX PlayerDeathState
+        STX PlayerDeadFlag
         STX YoyoActiveFlag
         STX PlayerClimbingFlag
         STX PlayerAirborneFlag
         STX TimeLoBCD
-        STX CountdownState
+        STX CountdownFlags
         INX
-        STX PlayerFacingStep
+        STX PlayerHorizontalStep
         STX HazardCounter
-        LDA #&32
+        LDA #COUNTDOWN_TICKS_PER_SEC
         STA CountdownDivider
         JSR ClearObjectTables
         JSR LoadLevelStream
         JSR DrawAllObjects
         JSR DrawStatus
-        DEC SoundIrqGate
+        DEC ScrollRefreshRequestFlag
         LDA #SPRITE_KEY
         LDY #QUEUE_COLLECTIBLES
         JSR CountObjectsOfType
         DEX
-        STX KeysRemaining
+        STX KeysRemainingMinusOne
         LDA TickCounter
         STA LastTick
 
 ; Main live frame loop.
-Core_MainGameFrame:
+; CONTRACT: one iteration of the live gameplay loop.
+; Effect: update player, test death/completion, service timer/keys and dynamic hazards.
+; Does not return during normal play; loops through MainGameFrame.
 MainGameFrame:
         JSR UpdatePlayerFrame
-        BIT PlayerDeathState
-        BMI Core_PlayerDied
-        BIT KeysRemaining
-        BMI Core_ScreenComplete
+        BIT PlayerDeadFlag
+        BMI PlayerDied
+        BIT KeysRemainingMinusOne
+        BMI HandleScreenComplete
         JSR TimerAndKeys
-        BNE Core_BackToTitle
+        BNE BackToTitle
         JSR SpawnHazard
         JMP MainGameFrame
 
-Core_PlayerDied:
+PlayerDied:
         JSR ResetCountdownDivider
-        LDA #&82
+        LDA #PLAYER_DEATH_DELAY_TICKS
         JSR DelayWithInput
         DEC Lives
-        BNE Core_RestartScreen
+        BNE RestartScreen
         JSR HighScoreInsert
-        BCC Core_BackToTitle
-        JMP Core_NewGameRuntime
-Core_BackToTitle:
+        BCC BackToTitle
+        JMP NewGame
+BackToTitle:
         JMP GameStartTitleLoop
 
-Core_ScreenComplete:
+HandleScreenComplete:
         JSR ScreenComplete
-        DEC GameState2F
-        LDY #&0A
-        STY WorkPtrLo           ; reused by game as a temporary counter
-Core_TimeBonusOuter:
+        DEC MusicInhibitFlag
+        LDY #TIME_BONUS_REPEAT_COUNT
+        STY TimeBonusRepeatCounter
+TimeBonus_Repeat:
         LDA TimeLoBCD
         JSR AddScoreBCD
         LDX TimeHiBCD
-        BEQ Core_TimeBonusOuterDone
-Core_TimeBonusHigh:
-        LDA #&60
+        BEQ TimeBonus_RepeatDone
+TimeBonus_AddMinutes:
+        LDA #BCD_SECONDS_PER_MINUTE
         JSR AddScoreBCD
         DEX
-        BNE Core_TimeBonusHigh
-Core_TimeBonusOuterDone:
-        DEC WorkPtrLo
-        BNE Core_TimeBonusOuter
+        BNE TimeBonus_AddMinutes
+TimeBonus_RepeatDone:
+        DEC TimeBonusRepeatCounter
+        BNE TimeBonus_Repeat
 
         INC BaseScreen
         LDA BaseScreen
-        CMP #&03
-        BCC Core_RestartScreen
+        CMP #BASE_SCREEN_COUNT
+        BCC RestartScreen
         LDA #&00
         STA BaseScreen
         ADC TransformCycle          ; carry is clear here: A=old transform cycle
-        AND #&07
+        AND #TRANSFORM_MASK
         STA TransformCycle
-Core_RestartScreen:
+RestartScreen:
         JMP StartScreen
 
-Core_ResetCountdownDivider:
 ResetCountdownDivider:
-        LDA #&40
-        STA CountdownState
+        LDA #COUNTDOWN_STOPPED
+        STA CountdownFlags
         RTS
 
 ; Countdown, sound toggle, freeze/unfreeze and escape processing.
-Core_TimerAndKeys:
+; CONTRACT: service countdown plus sound/freeze/escape controls.
+; Return: Z clear when ESC is pressed; Z set when play should continue.
+; Preserves caller X/Y via stack.
 TimerAndKeys:
         TXA
         PHA
         TYA
         PHA
-        BIT CountdownState
-        BPL Core_CheckSoundKey
-        INC CountdownState
+        BIT CountdownFlags
+        BPL CheckSoundKey
+        INC CountdownFlags
         SEC
         SED
         LDA TimeLoBCD
         SBC #&01
-        BCS Core_StoreTimeLo
+        BCS Countdown_StoreTimeLo
         DEC TimeHiBCD
-        LDA #&59
-Core_StoreTimeLo:
+        LDA #BCD_LAST_SECOND
+Countdown_StoreTimeLo:
         STA TimeLoBCD
         CLD
         JSR DrawStatus
-        DEC SoundIrqGate
+        DEC ScrollRefreshRequestFlag
         LDA TimeLoBCD
         ORA TimeHiBCD
-        BNE Core_CheckSoundKey
+        BNE CheckSoundKey
 
-        LDA #&40
-        STA CountdownState
+        LDA #COUNTDOWN_STOPPED
+        STA CountdownFlags
         SEC
         LDA HazardReload
-        SBC #&0A
+        SBC #HAZARD_EXPIRED_REDUCTION
         STA HazardReload
         LDA TransformCycle
         LSR A
-        BNE Core_ExpiryTransformNonZero
+        BNE CountdownExpired_TransformNonZero
         JSR PrintInlineStream
         EQUB &13,0,0,0,0,0,&EA
         JMP CheckSoundKey
-Core_ExpiryTransformNonZero:
+CountdownExpired_TransformNonZero:
         LSR A
-        BCC Core_CheckSoundKey
-        BNE Core_ExpiryThirdPattern
+        BCC CheckSoundKey
+        BNE CountdownExpired_ThirdPattern
         JSR PrintInlineStream
         EQUB &13,&03,&0F,0,0,0,&EA
         JMP CheckSoundKey
-Core_ExpiryThirdPattern:
+CountdownExpired_ThirdPattern:
         JSR PrintInlineStream
         EQUB &13,&03,&08,0,0,0,&EA
 
-Core_CheckSoundKey:
 CheckSoundKey:
         LDA #KEY_QUIET_Q
-        LDX SoundDisabledFlag
-        BPL Core_PollSoundKey
+        LDX SoundMutedFlag
+        BPL SoundToggle_PollKey
         LDA #KEY_SOUND_ON_S
-Core_PollSoundKey:
+SoundToggle_PollKey:
         JSR Inkey
-        BEQ Core_CheckFreeze
+        BEQ CheckFreezeKey
         TXA
         EOR #&FF
-        STA SoundDisabledFlag
-        BPL Core_CheckFreeze
-        LDA #&15
-        LDX #&04
-Core_FlushSoundChannels:
+        STA SoundMutedFlag
+        BPL CheckFreezeKey
+        LDA #OSBYTE_FLUSH_BUFFER
+        LDX #SOUND_BUFFER_FIRST
+SoundToggle_FlushChannels:
         JSR OSBYTEWrapper
         INX
-        CPX #&09
-        BCC Core_FlushSoundChannels
+        CPX #SOUND_BUFFER_END
+        BCC SoundToggle_FlushChannels
 
-Core_CheckFreeze:
+CheckFreezeKey:
         LDA #KEY_FREEZE_DELETE
         JSR Inkey
-        BEQ Core_ExitTimerKeys
+        BEQ TimerAndKeys_CheckEscape
         LDA #KEY_UNFREEZE_COPY
         JSR Inkey
-        BNE Core_ExitTimerKeys
-        DEC PauseGate
-        BIT CountdownState
-        BMI Core_ShowFreeze
-        BVS Core_WaitForUnfreeze
-Core_ShowFreeze:
+        BNE TimerAndKeys_CheckEscape
+        DEC PauseFlag
+        BIT CountdownFlags
+        BMI Freeze_ShowMessage
+        BVS Freeze_WaitForCopy
+Freeze_ShowMessage:
         JSR PrintInlineStream
         EQUB &1E
         EQUS " *** Freeze *** "
         EQUB &EA
-        DEC SoundIrqGate
-Core_WaitForUnfreeze:
+        DEC ScrollRefreshRequestFlag
+Freeze_WaitForCopy:
         LDA #KEY_UNFREEZE_COPY
         JSR Inkey
-        BEQ Core_WaitForUnfreeze
-        BIT CountdownState
-        BMI Core_RedrawAfterFreeze
-        BVS Core_FinishUnfreeze
-Core_RedrawAfterFreeze:
+        BEQ Freeze_WaitForCopy
+        BIT CountdownFlags
+        BMI Freeze_RedrawStatus
+        BVS Freeze_Resume
+Freeze_RedrawStatus:
         JSR DrawStatus
-        DEC SoundIrqGate
-Core_FinishUnfreeze:
-        INC PauseGate
+        DEC ScrollRefreshRequestFlag
+Freeze_Resume:
+        INC PauseFlag
 
-Core_ExitTimerKeys:
+TimerAndKeys_CheckEscape:
         PLA
         TAY
         PLA
@@ -1033,130 +1540,134 @@ Core_ExitTimerKeys:
 ; &0D01-&1FFC - main engine
 ; =============================================================================
 ORG REGION_ENGINE
+; SECTION: MAIN ENGINE
+; Broad order through this region:
+;   &0Dxx timing/interrupt/MOS helpers
+;   &0Exx-&11xx Trogg physics, ladders, jumping and yo-yo
+;   &11xx-&13xx frame commit, pickups and keyboard/joystick input
+;   &13xx-&15xx scrolling, collision and display transforms
+;   &15xx-&17xx score/status/high-score handling
+;   &17xx level decode, &18xx music/transitions, &19xx attract/title
+;   &1Bxx hazards, &1Cxx-&1Fxx sprite collision/traversal/rendering
 ; Wait for the 50 Hz/event tick counter to change.
-Main_WaitForTickChange:
 WaitForTickChange:
         LDA TickCounter
-Main_WaitTickLoop:
+WaitForTickChange_Loop:
         CMP TickCounter
-        BEQ Main_WaitTickLoop
+        BEQ WaitForTickChange_Loop
         RTS
 
 ; Synchronise drawing to the User VIA timer using the selected object's Y
 ; coordinate, transformed for the current screen orientation.
-Main_WaitForObjectRaster:
 WaitForObjectRaster:
         LDA ObjectY,X
-Main_WaitForRasterAtY:
 WaitForRasterAtY:
-        EOR Orientation
-        BIT Orientation
-        BPL Main_RasterYReady
+        EOR VerticalFlipFlag
+        BIT VerticalFlipFlag
+        BPL WaitForRasterAtY_TransformDone
         SEC
-        SBC #&1C
-Main_RasterYReady:
+        SBC #RASTER_Y_FLIP_OFFSET
+WaitForRasterAtY_TransformDone:
         LSR A
         LSR A
         CLC
         ADC #&FF
-        AND #&3F
-Main_WaitRasterTimer:
+        AND #RASTER_TIMER_COMPARE_MASK
+WaitForRasterAtY_TimerLoop:
         CMP USER_VIA_T2CH
-        BCC Main_WaitRasterTimer
+        BCC WaitForRasterAtY_TimerLoop
         RTS
 
 ; Inline VDU/text printer.  JSR PrintInlineStream is followed by bytes and an
 ; &EA terminator.  The routine consumes its caller's return address, prints the
 ; stream, then jumps indirectly to the byte after the terminator.
-Main_PrintInlineStream:
 PrintInlineStream:
         PLA
-        STA IndirectPtrLo
+        STA InlineStreamPtrLo
         PLA
-        STA IndirectPtrHi
+        STA InlineStreamPtrHi
         TYA
         PHA
         JMP PrintInlineAdvance
-Main_PrintInlineNext:
+PrintInlineStream_NextByte:
         LDY #&00
-        LDA (IndirectPtrLo),Y
-        CMP #&EA
-        BEQ Main_PrintInlineDone
+        LDA (InlineStreamPtrLo),Y
+        CMP #INLINE_STREAM_END
+        BEQ PrintInlineStream_Done
         JSR OSWRCH
-Main_PrintInlineAdvanceSource:
 PrintInlineAdvance:
-        INC IndirectPtrLo
-        BNE Main_PrintInlineNext
-        INC IndirectPtrHi
-        BNE Main_PrintInlineNext
-Main_PrintInlineDone:
+        INC InlineStreamPtrLo
+        BNE PrintInlineStream_NextByte
+        INC InlineStreamPtrHi
+        BNE PrintInlineStream_NextByte
+PrintInlineStream_Done:
         PLA
         TAY
-        JMP (IndirectPtrLo)
+        JMP (InlineStreamPtrLo)
 
 ; EVENTV handler.  Reload User VIA Timer 2, advance the game tick and maintain
 ; the two-byte countdown state unless pause/freeze gates suppress it.
-Main_TickIRQ:
 TickIRQ:
         PHP
         PHA
-        LDA #&50
+        LDA #RASTER_TIMER_RELOAD_LO
         STA USER_VIA_T2CL
-        LDA #&46
+        LDA #RASTER_TIMER_RELOAD_HI
         STA USER_VIA_T2CH
-        BIT PauseGate
-        BMI Main_TickIRQDone
+        BIT PauseFlag
+        BMI TickIRQ_Return
         INC TickCounter
-        BIT CountdownState
-        BMI Main_TickCountdown
-        BVS Main_TickIRQDone
-Main_TickCountdown:
+        BIT CountdownFlags
+        BMI TickIRQ_Countdown
+        BVS TickIRQ_Return
+TickIRQ_Countdown:
         DEC CountdownDivider
-        BNE Main_TickIRQDone
-        LDA #&32
+        BNE TickIRQ_Return
+        LDA #COUNTDOWN_TICKS_PER_SEC
         STA CountdownDivider
-        DEC CountdownState
-Main_TickIRQDone:
+        DEC CountdownFlags
+TickIRQ_Return:
         PLA
         PLP
         RTS
 
 ; IRQ1V handler.  Service User VIA Timer 2/Timer 1 work owned by Frak and then
 ; chain through the IRQ1V vector which startup saved in &4E/&4F.
-Main_SoundIRQ:
 SoundIRQ:
         PHP
         PHA
-        LDA #&20
+        LDA #VIA_IFR_TIMER2
         BIT USER_VIA_IFR
-        BEQ Main_CheckTimer1
+        BEQ SoundIRQ_CheckTimer1
         BIT USER_VIA_T2CL           ; read clears the Timer 2 interrupt flag
-        BIT SoundIrqGate
-        BPL Main_CheckTimer1
+        BIT ScrollRefreshRequestFlag
+        BPL SoundIRQ_CheckTimer1
         TYA
         PHA
         LDA #&00
-        STA SoundIrqGate
+        STA ScrollRefreshRequestFlag
         JSR RefreshScrollBuffer
         PLA
         TAY
-Main_CheckTimer1:
+SoundIRQ_CheckTimer1:
         BIT USER_VIA_IFR
-        BVC Main_ChainOldIRQ
+        BVC SoundIRQ_ChainOldIRQ
         BIT USER_VIA_T1CL           ; read clears the Timer 1 interrupt flag
-        LDA GameState2F
-        ORA PauseGate
-        BMI Main_ChainOldIRQ
-        DEC MusicCountdown
+        LDA MusicInhibitFlag
+        ORA PauseFlag
+        BMI SoundIRQ_ChainOldIRQ
+        DEC MusicDurationCounter
         JSR MusicStep
-Main_ChainOldIRQ:
+SoundIRQ_ChainOldIRQ:
         PLA
         PLP
         JMP (SavedIRQ1VLo)
 
 ; Negative-INKEY wrapper.  A contains the BBC internal key number; X and Y are
 ; preserved.  The Z flag returned by OSBYTE &81 is preserved for the caller.
-Main_Inkey:
+; CONTRACT: BBC negative-INKEY wrapper.
+; Entry: A=BBC internal key code. X/Y preserved.
+; Return: Z reflects key state as returned by OSBYTE &81; A is restored to key code.
 Inkey:
         STA InkeyCode
         TXA
@@ -1165,7 +1676,7 @@ Inkey:
         PHA
         LDX InkeyCode
         LDY #&FF
-        LDA #&81
+        LDA #OSBYTE_INKEY
         JSR OSBYTEWrapper
         PLA
         TAY
@@ -1177,79 +1688,77 @@ Inkey:
         PLP
         RTS
 
-; Return a pseudo-random value in A in the range 0 <= result < input A.
+; Return a pseudo-random value in A in the inclusive range 0 <= result <= input A.
 ; The mask is expanded to the next suitable power-of-two range, then candidates
-; are rejected until they fall below the requested limit.  The evolving state is
+; are rejected until they are less than or equal to the requested maximum.  The evolving state is
 ; mixed with User VIA Timer 1 for additional timing entropy.
-Main_RandomBelowA:
-RandomBelowA:
-        STA Scratch26
-        LDA #&80
-Main_RandomFindMask:
-        BIT Scratch26
-        BNE Main_RandomMaskFound
+; CONTRACT: bounded pseudo-random generator.
+; Entry: A=inclusive maximum.
+; Return: A in 0..input inclusive. Uses RandomState mixed with User VIA T1.
+RandomUpToA:
+        STA RandomLimit
+        LDA #PRNG_TOP_BIT
+RandomUpToA_FindMask:
+        BIT RandomLimit
+        BNE RandomUpToA_MaskReady
         LSR A
-        BCC Main_RandomFindMask
+        BCC RandomUpToA_FindMask
         LDA #&01
-Main_RandomMaskFound:
+RandomUpToA_MaskReady:
         SEC
         SBC #&01
         ROL A
         STA RandomMask
-Main_RandomRetry:
+RandomUpToA_Retry:
         LDA RandomState
-        ADC #&63
+        ADC #PRNG_INCREMENT
         STA RandomState
         EOR USER_VIA_T1CL
         AND RandomMask
-        CMP Scratch26
-        BEQ Main_RandomDone
-        BCS Main_RandomRetry
-Main_RandomDone:
+        CMP RandomLimit
+        BEQ RandomUpToA_Return
+        BCS RandomUpToA_Retry
+RandomUpToA_Return:
         RTS
 
 ; Reset the 123 object sprite/type slots and the 23 dynamic velocity slots.
-Main_ClearObjectTables:
 ClearObjectTables:
-        LDY #&7B
-        LDA #&FF
-Main_ClearObjectSprites:
+        LDY #OBJECT_SLOT_COUNT
+        LDA #OBJECT_EMPTY
+ClearObjectTables_SpritesLoop:
         STA ObjectSprite-1,Y
         DEY
-        BNE Main_ClearObjectSprites
-        LDX #&17
-Main_ClearDynamicSlots:
-        LDA #&FF
+        BNE ClearObjectTables_SpritesLoop
+        LDX #DYNAMIC_MOTION_SLOTS
+ClearObjectTables_DynamicLoop:
+        LDA #OBJECT_EMPTY
         STA ObjectDY-1,X
         TYA                         ; Y is zero after the object clear loop
         STA ObjectDX-1,X
         DEX
-        BNE Main_ClearDynamicSlots
-Main_ClearObjectDone:
+        BNE ClearObjectTables_DynamicLoop
+ClearObjectTables_Return:
         RTS
 
 ; KEYV filter installed by startup. Requests not consumed here are chained
 ; to the previous KEYV saved in &4C/&4D.
-Main_KeyVHandler:
 KeyVHandler:
-        BVS Main_ClearObjectDone
-        BCC Main_ClearObjectDone
+        BVS ClearObjectTables_Return
+        BCC ClearObjectTables_Return
         JMP (SavedKeyVLo)
 
-; MOS wrappers bracket calls with OSCallGate so interrupt-side code can see that
+; MOS wrappers bracket calls with MosCallInProgressFlag so interrupt-side code can see that
 ; a MOS call is in progress.
-Main_OSBYTEWrapper:
 OSBYTEWrapper:
-        DEC OSCallGate
+        DEC MosCallInProgressFlag
         JSR OSBYTE
-        INC OSCallGate
+        INC MosCallInProgressFlag
         RTS
 
-Main_OSWORDWrapper:
 OSWORDWrapper:
-        DEC OSCallGate
+        DEC MosCallInProgressFlag
         JSR OSWORD
-        INC OSCallGate
+        INC MosCallInProgressFlag
         RTS
 
 Runtime_0D01_DecompiledEnd:
@@ -1263,21 +1772,27 @@ Runtime_0D01_DecompiledEnd:
 ; -----------------------------------------------------------------------------
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: TROGG MOVEMENT / PHYSICS / YO-YO
+; From here through the climbing/airborne routines, code computes Trogg input,
+; jump/fall velocity, platform support, ladder attachment and yo-yo state.
+;
 ; Runtime &0E0B: ladder/rope collision test.
 ; -----------------------------------------------------------------------------
-Code_TestLadderCollision:
+; CONTRACT: construct Trogg's narrow ladder probe and scan ladder queue.
+; Entry: A/Y/X participate in current player geometry; preserves caller X/Y on stack.
+; Return: carry from collision scan indicates ladder/rope overlap.
 TestLadderCollision:
-        STA     Scratch26                            ; &0E0B: 85 26
+        STA     LadderProbeObjectSlot                    ; &0E0B: 85 26
         TXA                                          ; &0E0D: 8A
         PHA                                          ; &0E0E: 48
         TYA                                          ; &0E0F: 98
         PHA                                          ; &0E10: 48
-        LDX     Scratch26                            ; &0E11: A6 26
+        LDX     LadderProbeObjectSlot                    ; &0E11: A6 26
         SEC                                          ; &0E13: 38
-        SBC     #&0E                                 ; &0E14: E9 0E
+        SBC     #LADDER_PROBE_BOTTOM_OFFSET                                 ; &0E14: E9 0E
         STA     CollisionBottom                                  ; &0E16: 85 48
         CLC                                          ; &0E18: 18
-        ADC     #&1E                                 ; &0E19: 69 1E
+        ADC     #LADDER_PROBE_HEIGHT                                 ; &0E19: 69 1E
         STA     CollisionTop                                  ; &0E1B: 85 47
         LDY     ObjectX,X                            ; &0E1D: BC 68 03
         STY     CollisionLeft                                  ; &0E20: 84 45
@@ -1290,40 +1805,38 @@ TestLadderCollision:
         PLA                                          ; &0E2C: 68
         TAX                                          ; &0E2D: AA
         RTS                                          ; &0E2E: 60
-Code_TryAttachLadder:
 TryAttachLadder:
         LDA     #&00                                 ; &0E2F: A9 00
         JSR     TestLadderCollision                  ; &0E31: 20 0B 0E
-        BCC     L0E5E                                ; &0E34: 90 28
+        BCC     TryAttachLadder_Return                                ; &0E34: 90 28
         BIT     PlayerAirborneFlag                              ; &0E36: 24 53
-        BMI     L0E55                                ; &0E38: 30 1B
+        BMI     TryAttachLadder_Attach                                ; &0E38: 30 1B
         CPY     ObjectY                              ; &0E3A: CC E3 03
         PHP                                          ; &0E3D: 08
-        STX     Scratch26                            ; &0E3E: 86 26
-        LDX     CollisionObject                      ; &0E40: A6 64
+        STX     LadderSavedX                             ; &0E3E: 86 26
+        LDX     CollidedObjectSlot                      ; &0E40: A6 64
         LDA     ObjectY,X                            ; &0E42: BD E3 03
         CMP     ObjectY                              ; &0E45: CD E3 03
         ROR     A                                    ; &0E48: 6A
-        LDX     Scratch26                            ; &0E49: A6 26
-        STA     Scratch26                            ; &0E4B: 85 26
+        LDX     LadderSavedX                             ; &0E49: A6 26
+        STA     LadderSideRelationBits                   ; &0E4B: 85 26
         PLP                                          ; &0E4D: 28
         ROR     A                                    ; &0E4E: 6A
         CLC                                          ; &0E4F: 18
-        EOR     Scratch26                            ; &0E50: 45 26
-        BMI     L0E5E                                ; &0E52: 30 0A
+        EOR     LadderSideRelationBits                   ; &0E50: 45 26
+        BMI     TryAttachLadder_Return                                ; &0E52: 30 0A
         SEC                                          ; &0E54: 38
-L0E55:
+TryAttachLadder_Attach:
         DEC     PlayerClimbingFlag                              ; &0E55: C6 54
         LDA     #&00                                 ; &0E57: A9 00
         STA     ObjectDX                             ; &0E59: 8D D9 04
-        LDX     #&13                                 ; &0E5C: A2 13
-L0E5E:
+        LDX     #SPRITE_TROGG_CLIMB_A               ; &0E5C: A2 13
+TryAttachLadder_Return:
         RTS                                          ; &0E5E: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &0E5F: floor/platform collision test.
 ; -----------------------------------------------------------------------------
-Code_TestFloorCollision:
 TestFloorCollision:
         STA     CollisionTop                                  ; &0E5F: 85 47
         STA     CollisionBottom                                  ; &0E61: 85 48
@@ -1348,40 +1861,44 @@ TestFloorCollision:
 ; the string/line component walks through the extension frames while the yo-yo
 ; travels away from and back toward Trogg.
 YoyoHeadSpriteTable:
-        EQUB &0E,&0D,&0F,&10
+        EQUB SPRITE_YOYO_HEAD_PHASE0,SPRITE_YOYO_HEAD_PHASE1,SPRITE_YOYO_HEAD_PHASE2,SPRITE_YOYO_HEAD_PHASE3
 YoyoStringSpriteTable:
-        EQUB &FF,&28,&29,&2A,&2B,&2C,&2D,&2E,&2F,&30,&31,&32,&33
+        EQUB SPRITE_HIDDEN,SPRITE_YOYO_STRING0,SPRITE_YOYO_STRING1,SPRITE_YOYO_STRING2
+        EQUB SPRITE_YOYO_STRING3,SPRITE_YOYO_STRING4,SPRITE_YOYO_STRING5,SPRITE_YOYO_STRING6
+        EQUB SPRITE_YOYO_STRING7,SPRITE_YOYO_STRING8,SPRITE_YOYO_STRING9,SPRITE_YOYO_STRING10,SPRITE_YOYO_STRING11
 
 ; -----------------------------------------------------------------------------
 ; Runtime &0E8F: yo-yo attack state machine.
 ; -----------------------------------------------------------------------------
-Code_UpdateYoyoAttack:
+; CONTRACT: advance the complete yo-yo state machine for one player update.
+; Effect: deploy/animate/retract yo-yo, scan hits, award monster score and apply knockback.
+; Uses slots 1 (string) and 2 (head); YoyoActiveFlag is the top-level state gate.
 UpdateYoyoAttack:
         STX     PlayerFrameSprite                      ; &0E8F: 86 58
         DEC     YoyoActiveFlag                              ; &0E91: C6 55
         LDA     #&00                                 ; &0E93: A9 00
         STA     ObjectDX                             ; &0E95: 8D D9 04
-        LDX     #&02                                 ; &0E98: A2 02
+        LDX     #YOYO_HEAD_SLOT                     ; &0E98: A2 02
         CLC                                          ; &0E9A: 18
-        LDA     PlayerFacingStep                       ; &0E9B: A5 57
+        LDA     PlayerHorizontalStep                       ; &0E9B: A5 57
         STA     ObjectDX,X                           ; &0E9D: 9D D9 04
         ADC     ObjectX                              ; &0EA0: 6D 68 03
-        BIT     PlayerFacingStep                       ; &0EA3: 24 57
-        BPL     L0EAA                                ; &0EA5: 10 03
+        BIT     PlayerHorizontalStep                       ; &0EA3: 24 57
+        BPL     Yoyo_StoreHeadX                                ; &0EA5: 10 03
         SEC                                          ; &0EA7: 38
-        SBC     #&02                                 ; &0EA8: E9 02
-L0EAA:
+        SBC     #YOYO_HEAD_X_OFFSET                 ; &0EA8: E9 02
+Yoyo_StoreHeadX:
         STA     ObjectX,X                            ; &0EAA: 9D 68 03
         STA     YoyoBaseX                                  ; &0EAD: 85 65
         CLC                                          ; &0EAF: 18
-        ADC     #&02                                 ; &0EB0: 69 02
-        STA     ObjectX+&1                           ; &0EB2: 8D 69 03
+        ADC     #YOYO_HEAD_X_OFFSET                 ; &0EB0: 69 02
+        STA     ObjectX+YOYO_STRING_SLOT                           ; &0EB2: 8D 69 03
         CLC                                          ; &0EB5: 18
         LDA     ObjectY                              ; &0EB6: AD E3 03
-        ADC     #&0B                                 ; &0EB9: 69 0B
-        STA     ObjectY+&1                           ; &0EBB: 8D E4 03
-        STA     ObjectY+&2                           ; &0EBE: 8D E5 03
-        INC     ObjectY+&1                           ; &0EC1: EE E4 03
+        ADC     #YOYO_VERTICAL_OFFSET                ; &0EB9: 69 0B
+        STA     ObjectY+YOYO_STRING_SLOT                           ; &0EBB: 8D E4 03
+        STA     ObjectY+YOYO_HEAD_SLOT                           ; &0EBE: 8D E5 03
+        INC     ObjectY+YOYO_STRING_SLOT                           ; &0EC1: EE E4 03
         LDY     #&01                                 ; &0EC4: A0 01
         STY     YoyoExtensionDirection                                  ; &0EC6: 84 79
         DEY                                          ; &0EC8: 88
@@ -1389,63 +1906,62 @@ L0EAA:
         DEY                                          ; &0ECB: 88
         STY     YoyoExtensionCount                                  ; &0ECC: 84 67
         STY     YoyoAnimationIndex                                  ; &0ECE: 84 78
-        LDX     #&3D                                 ; &0ED0: A2 3D
-        LDA     PlayerFacingStep                       ; &0ED2: A5 57
-        BMI     L0EDA                                ; &0ED4: 30 04
+        LDX     #SPRITE_TROGG_YOYO_LEFT              ; &0ED0: A2 3D
+        LDA     PlayerHorizontalStep                       ; &0ED2: A5 57
+        BMI     Yoyo_InitialiseMotion                                ; &0ED4: 30 04
         LDA     #&00                                 ; &0ED6: A9 00
-        LDX     #&3C                                 ; &0ED8: A2 3C
-L0EDA:
-Code_ContinueYoyoAttack:
-        STA     ObjectDX+&1                          ; &0EDA: 8D DA 04
+        LDX     #SPRITE_TROGG_YOYO_RIGHT             ; &0ED8: A2 3C
+Yoyo_InitialiseMotion:
+        STA     ObjectDX+YOYO_STRING_SLOT                          ; &0EDA: 8D DA 04
 ContinueYoyoAttack:
         TXA                                          ; &0EDD: 8A
         PHA                                          ; &0EDE: 48
-        LDX     #&00                                 ; &0EDF: A2 00
+        LDX     #TROGG_SLOT                                 ; &0EDF: A2 00
         JSR     WaitForObjectRaster                  ; &0EE1: 20 08 0D
         INC     YoyoExtensionCount                                  ; &0EE4: E6 67
-        BEQ     L0EF7                                ; &0EE6: F0 0F
+        BEQ     Yoyo_AdvanceHeadPhase                                ; &0EE6: F0 0F
         INX                                          ; &0EE8: E8
         LDA     ObjectSprite,X                       ; &0EE9: BD 5E 04
-        CMP     #&FF                                 ; &0EEC: C9 FF
-        BEQ     L0EF3                                ; &0EEE: F0 03
-        JSR     ObjectModeC0                         ; &0EF0: 20 23 0B
-L0EF3:
+        CMP     #SPRITE_HIDDEN                                 ; &0EEC: C9 FF
+        BEQ     Yoyo_EraseHead                                ; &0EEE: F0 03
+        JSR     EraseObjectAndScanCollisions                         ; &0EF0: 20 23 0B
+Yoyo_EraseHead:
         INX                                          ; &0EF3: E8
-        JSR     ObjectModeC0                         ; &0EF4: 20 23 0B
-L0EF7:
-        LDX     #&02                                 ; &0EF7: A2 02
+        JSR     EraseObjectAndScanCollisions                         ; &0EF4: 20 23 0B
+Yoyo_AdvanceHeadPhase:
+        LDX     #YOYO_HEAD_SLOT                                 ; &0EF7: A2 02
         CLC                                          ; &0EF9: 18
         LDA     YoyoSegmentPhase                                  ; &0EFA: A5 66
         ADC     ObjectDX,X                           ; &0EFC: 7D D9 04
-        BMI     L0F09                                ; &0EFF: 30 08
-        CMP     #&04                                 ; &0F01: C9 04
-        BCC     L0F0B                                ; &0F03: 90 06
+        BMI     Yoyo_UseLastHeadPhase                                ; &0EFF: 30 08
+        CMP     #YOYO_HEAD_FRAME_COUNT                                 ; &0F01: C9 04
+        BCC     Yoyo_StoreHeadPhase                                ; &0F03: 90 06
         LDA     #&00                                 ; &0F05: A9 00
-        BEQ     L0F0B                                ; &0F07: F0 02
-L0F09:
-        LDA     #&03                                 ; &0F09: A9 03
-L0F0B:
+        BEQ     Yoyo_StoreHeadPhase                                ; &0F07: F0 02
+Yoyo_UseLastHeadPhase:
+        LDA     #YOYO_HEAD_FRAME_COUNT-1                                 ; &0F09: A9 03
+Yoyo_StoreHeadPhase:
         STA     YoyoSegmentPhase                                  ; &0F0B: 85 66
         TAX                                          ; &0F0D: AA
         LDA     YoyoHeadSpriteTable,X                 ; &0F0E: BD 7E 0E
-        LDX     #&02                                 ; &0F11: A2 02
+        LDX     #YOYO_HEAD_SLOT                                 ; &0F11: A2 02
         STA     ObjectSprite,X                       ; &0F13: 9D 5E 04
-        LDA     PlayerFacingStep                       ; &0F16: A5 57
-        CMP     ObjectDX+&2                          ; &0F18: CD DB 04
-        BNE     L0F36                                ; &0F1B: D0 19
+        LDA     PlayerHorizontalStep                       ; &0F16: A5 57
+        CMP     ObjectDX+YOYO_HEAD_SLOT                          ; &0F18: CD DB 04
+        BNE     Yoyo_MoveComponents                                ; &0F1B: D0 19
         LDA     ObjectX,X                            ; &0F1D: BD 68 03
-        CMP     #&C8                                 ; &0F20: C9 C8
-        BCS     L0F33                                ; &0F22: B0 0F
+        CMP     #YOYO_RIGHT_LIMIT                                 ; &0F20: C9 C8
+        BCS     Yoyo_BeginRetraction                                ; &0F22: B0 0F
         LDA     YoyoExtensionCount                                  ; &0F24: A5 67
-        CMP     #&05                                 ; &0F26: C9 05
-        BCC     L0F36                                ; &0F28: 90 0C
-        CMP     #&0B                                 ; &0F2A: C9 0B
-        BCS     L0F33                                ; &0F2C: B0 05
+        CMP     #YOYO_MIN_EXTENSION                                 ; &0F26: C9 05
+        BCC     Yoyo_MoveComponents                                ; &0F28: 90 0C
+        CMP     #YOYO_MAX_EXTENSION                                 ; &0F2A: C9 0B
+        BCS     Yoyo_BeginRetraction                                ; &0F2C: B0 05
         JSR     ReadYoyoControl                             ; &0F2E: 20 59 13
-        BNE     L0F36                                ; &0F31: D0 03
-L0F33:
+        BNE     Yoyo_MoveComponents                                ; &0F31: D0 03
+Yoyo_BeginRetraction:
         JSR     RetractYoyo                                ; &0F33: 20 74 10
-L0F36:
+Yoyo_MoveComponents:
         CLC                                          ; &0F36: 18
         LDA     ObjectX,X                            ; &0F37: BD 68 03
         ADC     ObjectDX,X                           ; &0F3A: 7D D9 04
@@ -1453,191 +1969,194 @@ L0F36:
         ADC     ObjectDX,X                           ; &0F3E: 7D D9 04
         STA     ObjectX,X                            ; &0F41: 9D 68 03
         DEX                                          ; &0F44: CA
-        BNE     L0F36                                ; &0F45: D0 EF
+        BNE     Yoyo_MoveComponents                                ; &0F45: D0 EF
         CLC                                          ; &0F47: 18
         LDA     YoyoAnimationIndex                                  ; &0F48: A5 78
         ADC     YoyoExtensionDirection                                  ; &0F4A: 65 79
         STA     YoyoAnimationIndex                                  ; &0F4C: 85 78
         TAY                                          ; &0F4E: A8
         LDA     YoyoStringSpriteTable,Y               ; &0F4F: B9 82 0E
-        STA     ObjectSprite+&1                      ; &0F52: 8D 5F 04
-        LDA     ObjectX+&2                           ; &0F55: AD 6A 03
+        STA     ObjectSprite+YOYO_STRING_SLOT                      ; &0F52: 8D 5F 04
+        LDA     ObjectX+YOYO_HEAD_SLOT                           ; &0F55: AD 6A 03
         CMP     YoyoBaseX                                  ; &0F58: C5 65
-        BEQ     L0FD0                                ; &0F5A: F0 74
-        LDX     #&02                                 ; &0F5C: A2 02
+        BEQ     Yoyo_Finished                                ; &0F5A: F0 74
+        LDX     #YOYO_HEAD_SLOT                                 ; &0F5C: A2 02
         LDA     #COLLIDE_YOYO                                 ; &0F5E: A9 08
-        BIT     CountdownState                       ; &0F60: 24 85
-        BMI     L0F68                                ; &0F62: 30 04
-        BVC     L0F68                                ; &0F64: 50 02
+        BIT     CountdownFlags                       ; &0F60: 24 85
+        BMI     Yoyo_CheckCollision                                ; &0F62: 30 04
+        BVC     Yoyo_CheckCollision                                ; &0F64: 50 02
         LDA     #COLLIDE_YOYO_DARK                                 ; &0F66: A9 80
-L0F68:
+Yoyo_CheckCollision:
         JSR     ScanObjectCollisions                                ; &0F68: 20 BD 1C
-        BCS     L0F79                                ; &0F6B: B0 0C
-L0F6D:
-        JSR     ObjectMode00                         ; &0F6D: 20 20 0B
+        BCS     Yoyo_CollisionHit                                ; &0F6B: B0 0C
+Yoyo_RedrawComponentsLoop:
+        JSR     DrawObject                         ; &0F6D: 20 20 0B
         DEX                                          ; &0F70: CA
-        BNE     L0F6D                                ; &0F71: D0 FA
+        BNE     Yoyo_RedrawComponentsLoop                                ; &0F71: D0 FA
         PLA                                          ; &0F73: 68
         TAX                                          ; &0F74: AA
-L0F75:
+Yoyo_ReturnPlayerY:
         LDY     ObjectY                              ; &0F75: AC E3 03
         RTS                                          ; &0F78: 60
-L0F79:
+Yoyo_CollisionHit:
         LDX     #<YoyoHitSoundBlock                  ; &0F79: A2 AC
         JSR     SoundOSWORD7                         ; &0F7B: 20 A9 18
         LDA     CollidedQueueDescriptor                                  ; &0F7E: A5 94
         CMP     #QUEUE_MONSTERS                                 ; &0F80: C9 0C
-        BNE     L0FBA                                ; &0F82: D0 36
-        LDX     #&01                                 ; &0F84: A2 01
-        JSR     ObjectMode00                         ; &0F86: 20 20 0B
+        BNE     Yoyo_RemoveHitObject                                ; &0F82: D0 36
+        LDX     #YOYO_STRING_SLOT                                 ; &0F84: A2 01
+        JSR     DrawObject                         ; &0F86: 20 20 0B
         INX                                          ; &0F89: E8
-        JSR     ObjectMode00                         ; &0F8A: 20 20 0B
-        LDX     CollisionObject                      ; &0F8D: A6 64
-        LDA     #&05                                 ; &0F8F: A9 05
-        STA     TempCounter34                         ; &0F91: 85 34
-L0F93:
+        JSR     DrawObject                         ; &0F8A: 20 20 0B
+        LDX     CollidedObjectSlot                      ; &0F8D: A6 64
+        LDA     #YOYO_KNOCKBACK_FRAMES               ; &0F8F: A9 05
+        STA     YoyoKnockbackFramesRemaining                         ; &0F91: 85 34
+Yoyo_KnockbackLoop:
         JSR     WaitForTickChange                    ; &0F93: 20 01 0D
         JSR     WaitForObjectRaster                  ; &0F96: 20 08 0D
-        JSR     ObjectModeC0                         ; &0F99: 20 23 0B
+        JSR     EraseObjectAndScanCollisions                         ; &0F99: 20 23 0B
         LDA     ObjectX,X                            ; &0F9C: BD 68 03
-        LDY     #&08                                 ; &0F9F: A0 08
-L0FA1:
+        LDY     #YOYO_KNOCKBACK_STEPS                ; &0F9F: A0 08
+Yoyo_KnockbackXLoop:
         CLC                                          ; &0FA1: 18
-        ADC     PlayerFacingStep                       ; &0FA2: 65 57
+        ADC     PlayerHorizontalStep                       ; &0FA2: 65 57
         DEY                                          ; &0FA4: 88
-        BNE     L0FA1                                ; &0FA5: D0 FA
+        BNE     Yoyo_KnockbackXLoop                                ; &0FA5: D0 FA
         STA     ObjectX,X                            ; &0FA7: 9D 68 03
-        JSR     ObjectMode00                         ; &0FAA: 20 20 0B
-        DEC     TempCounter34                         ; &0FAD: C6 34
-        BNE     L0F93                                ; &0FAF: D0 E2
+        JSR     DrawObject                         ; &0FAA: 20 20 0B
+        DEC     YoyoKnockbackFramesRemaining                         ; &0FAD: C6 34
+        BNE     Yoyo_KnockbackLoop                                ; &0FAF: D0 E2
         LDX     #&01                                 ; &0FB1: A2 01
-        JSR     ObjectModeC0                         ; &0FB3: 20 23 0B
+        JSR     EraseObjectAndScanCollisions                         ; &0FB3: 20 23 0B
         INX                                          ; &0FB6: E8
-        JSR     ObjectModeC0                         ; &0FB7: 20 23 0B
-L0FBA:
+        JSR     EraseObjectAndScanCollisions                         ; &0FB7: 20 23 0B
+Yoyo_RemoveHitObject:
         JSR     RetractYoyo                                ; &0FBA: 20 74 10
-        LDX     CollisionObject                      ; &0FBD: A6 64
+        LDX     CollidedObjectSlot                      ; &0FBD: A6 64
         JSR     EraseCollidedObject                  ; &0FBF: 20 A0 12
-        LDA     #&25                                 ; &0FC2: A9 25
+        LDA     #SCORE_MONSTER_BCD                                 ; &0FC2: A9 25
         JSR     AddScoreBCD                          ; &0FC4: 20 B8 15
         JSR     DrawStatus                           ; &0FC7: 20 DB 15
-        DEC     SoundIrqGate                         ; &0FCA: C6 70
-        LDX     #&02                                 ; &0FCC: A2 02
-        BNE     L0F6D                                ; &0FCE: D0 9D
-L0FD0:
+        DEC     ScrollRefreshRequestFlag                         ; &0FCA: C6 70
+        LDX     #YOYO_HEAD_SLOT                                 ; &0FCC: A2 02
+        BNE     Yoyo_RedrawComponentsLoop                                ; &0FCE: D0 9D
+Yoyo_Finished:
         INC     YoyoActiveFlag                              ; &0FD0: E6 55
-        LDA     #&FF                                 ; &0FD2: A9 FF
-        STA     ObjectSprite+&1                      ; &0FD4: 8D 5F 04
-        STA     ObjectSprite+&2                      ; &0FD7: 8D 60 04
+        LDA     #SPRITE_HIDDEN                                 ; &0FD2: A9 FF
+        STA     ObjectSprite+YOYO_STRING_SLOT                      ; &0FD4: 8D 5F 04
+        STA     ObjectSprite+YOYO_HEAD_SLOT                      ; &0FD7: 8D 60 04
         PLA                                          ; &0FDA: 68
         LDX     PlayerFrameSprite                      ; &0FDB: A6 58
-        BNE     L0F75                                ; &0FDD: D0 96
-L0FDF:
+        BNE     Yoyo_ReturnPlayerY                                ; &0FDD: D0 96
+PlayerDispatch_StartYoyo:
         JMP     UpdateYoyoAttack                          ; &0FDF: 4C 8F 0E
-L0FE2:
+PlayerDispatch_Climbing:
         JMP     UpdateClimbingPlayer                                ; &0FE2: 4C 3B 11
-L0FE5:
+PlayerDispatch_Airborne:
         JMP     UpdateAirbornePlayer                                ; &0FE5: 4C DE 10
-L0FE8:
+PlayerDispatch_ContinueYoyo:
         JMP     ContinueYoyoAttack                   ; &0FE8: 4C DD 0E
-Code_UpdatePlayerMotion:
+; CONTRACT: calculate Trogg movement/animation for one player update.
+; Entry: Y=current player Y.
+; Effect: reads controls, updates proposed X/Y/sprite and dispatches climb/airborne/yo-yo paths.
 UpdatePlayerMotion:
         LSR     JumpInputHistory                                  ; &0FEB: 46 5D
         LDX     ObjectSprite                         ; &0FED: AE 5E 04
         LDY     ObjectY                              ; &0FF0: AC E3 03
         BIT     YoyoActiveFlag                              ; &0FF3: 24 55
-        BMI     L0FE8                                ; &0FF5: 30 F1
+        BMI     PlayerDispatch_ContinueYoyo                                ; &0FF5: 30 F1
         BIT     PlayerAirborneFlag                              ; &0FF7: 24 53
-        BMI     L0FE5                                ; &0FF9: 30 EA
+        BMI     PlayerDispatch_Airborne                                ; &0FF9: 30 EA
         BIT     PlayerClimbingFlag                              ; &0FFB: 24 54
-        BMI     L0FE2                                ; &0FFD: 30 E3
+        BMI     PlayerDispatch_Climbing                                ; &0FFD: 30 E3
         LDX     #&00                                 ; &0FFF: A2 00
         JSR     ReadHorizontal                       ; &1001: 20 F9 12
         STX     ObjectDX                             ; &1004: 8E D9 04
         TXA                                          ; &1007: 8A
-        BEQ     L100C                                ; &1008: F0 02
-        STX     PlayerFacingStep                       ; &100A: 86 57
-L100C:
+        BEQ     PlayerMotion_SelectCurrentFrame                                ; &1008: F0 02
+        STX     PlayerHorizontalStep                       ; &100A: 86 57
+PlayerMotion_SelectCurrentFrame:
         LDX     ObjectSprite                         ; &100C: AE 5E 04
         STX     PlayerFrameSprite                      ; &100F: 86 58
         JSR     ReadVertical                         ; &1011: 20 1D 13
         CPY     ObjectY                              ; &1014: CC E3 03
-        BEQ     L102F                                ; &1017: F0 16
+        BEQ     PlayerMotion_LatchJumpInput                                ; &1017: F0 16
         JSR     TryAttachLadder                                ; &1019: 20 2F 0E
-        BCS     L1069                                ; &101C: B0 4B
+        BCS     PlayerMotion_Return                                ; &101C: B0 4B
         CPY     ObjectY                              ; &101E: CC E3 03
         LDY     ObjectY                              ; &1021: AC E3 03
-        BCC     L102F                                ; &1024: 90 09
+        BCC     PlayerMotion_LatchJumpInput                                ; &1024: 90 09
         BIT     JumpInputHistory                                  ; &1026: 24 5D
-        BVC     L1034                                ; &1028: 50 0A
-        BCC     L102F                                ; &102A: 90 03
+        BVC     PlayerMotion_UpdateWalkAnimation                                ; &1028: 50 0A
+        BCC     PlayerMotion_LatchJumpInput                                ; &102A: 90 03
         JMP     StartPlayerJump                                ; &102C: 4C CB 10
-L102F:
+PlayerMotion_LatchJumpInput:
         ASL     JumpInputHistory                                  ; &102F: 06 5D
         SEC                                          ; &1031: 38
         ROR     JumpInputHistory                                  ; &1032: 66 5D
-L1034:
+PlayerMotion_UpdateWalkAnimation:
         LDA     ObjectDX                             ; &1034: AD D9 04
-        BEQ     L1059                                ; &1037: F0 20
-        BMI     L104C                                ; &1039: 30 11
+        BEQ     PlayerMotion_CheckYoyo                                ; &1037: F0 20
+        BMI     PlayerMotion_WalkLeft                                ; &1039: 30 11
         LDX     WalkAnimationPhase                           ; &103B: A6 32
         INX                                          ; &103D: E8
-        CPX     #&04                                 ; &103E: E0 04
-        BCC     L1044                                ; &1040: 90 02
+        CPX     #PLAYER_WALK_FRAME_COUNT                                 ; &103E: E0 04
+        BCC     PlayerMotion_StoreRightWalkPhase                                ; &1040: 90 02
         LDX     #&00                                 ; &1042: A2 00
-L1044:
+PlayerMotion_StoreRightWalkPhase:
         STX     WalkAnimationPhase                           ; &1044: 86 32
         LDA     PlayerWalkFramesRight,X              ; &1046: BD 8A 12
         TAX                                          ; &1049: AA
-        BNE     L1059                                ; &104A: D0 0D
-L104C:
+        BNE     PlayerMotion_CheckYoyo                                ; &104A: D0 0D
+PlayerMotion_WalkLeft:
         LDX     WalkAnimationPhase                           ; &104C: A6 32
         DEX                                          ; &104E: CA
-        BPL     L1053                                ; &104F: 10 02
-        LDX     #&03                                 ; &1051: A2 03
-L1053:
+        BPL     PlayerMotion_StoreLeftWalkPhase                                ; &104F: 10 02
+        LDX     #PLAYER_WALK_FRAME_LAST             ; &1051: A2 03
+PlayerMotion_StoreLeftWalkPhase:
         STX     WalkAnimationPhase                           ; &1053: 86 32
         LDA     PlayerWalkFramesLeft,X               ; &1055: BD 8E 12
         TAX                                          ; &1058: AA
-L1059:
+PlayerMotion_CheckYoyo:
         JSR     ReadYoyoControl                             ; &1059: 20 59 13
-        BNE     L0FDF                                ; &105C: D0 81
+        BNE     PlayerDispatch_StartYoyo                                ; &105C: D0 81
         LDA     #&00                                 ; &105E: A9 00
         JSR     TestPlayerMove                             ; &1060: 20 85 10
-        BCS     L106A                                ; &1063: B0 05
+        BCS     PlayerMotion_SetSupportY                                ; &1063: B0 05
         LDA     #&FF                                 ; &1065: A9 FF
         STA     PlayerAirborneFlag                              ; &1067: 85 53
-L1069:
+PlayerMotion_Return:
         RTS                                          ; &1069: 60
-L106A:
-        LDY     CollisionObject                      ; &106A: A4 64
+PlayerMotion_SetSupportY:
+        LDY     CollidedObjectSlot                      ; &106A: A4 64
         STY     SupportObjectSlot                    ; &106C: 84 77
         LDA     ObjectY,Y                            ; &106E: B9 E3 03
         TAY                                          ; &1071: A8
         INY                                          ; &1072: C8
         RTS                                          ; &1073: 60
-Code_RetractYoyo:
 RetractYoyo:
         LDA     #&FF                                 ; &1074: A9 FF
         STA     YoyoExtensionDirection                                  ; &1076: 85 79
-        LDA     PlayerFacingStep                       ; &1078: A5 57
-        EOR     #&FE                                 ; &107A: 49 FE
-        STA     ObjectDX+&2                          ; &107C: 8D DB 04
-        BMI     L1069                                ; &107F: 30 E8
-        STA     ObjectDX+&1                          ; &1081: 8D DA 04
+        LDA     PlayerHorizontalStep                       ; &1078: A5 57
+        EOR     #SIGNED_UNIT_FLIP_MASK                                 ; &107A: 49 FE
+        STA     ObjectDX+YOYO_HEAD_SLOT                          ; &107C: 8D DB 04
+        BMI     PlayerMotion_Return                                ; &107F: 30 E8
+        STA     ObjectDX+YOYO_STRING_SLOT                          ; &1081: 8D DA 04
         RTS                                          ; &1084: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1085: movement/collision feasibility test.
 ; -----------------------------------------------------------------------------
-Code_TestPlayerMove:
+; CONTRACT: test proposed Trogg motion against floors and landing rules.
+; Entry: player slot/state in object arrays; proposed motion in ObjectDX/ObjectDY.
+; Return: collision/landing condition through flags; restores saved registers before return.
 TestPlayerMove:
-        STA     Scratch26                            ; &1085: 85 26
+        STA     MovementObjectSlot                            ; &1085: 85 26
         TXA                                          ; &1087: 8A
         PHA                                          ; &1088: 48
         TYA                                          ; &1089: 98
         PHA                                          ; &108A: 48
-        LDX     Scratch26                            ; &108B: A6 26
+        LDX     MovementObjectSlot                            ; &108B: A6 26
         CLC                                          ; &108D: 18
         LDA     ObjectX,X                            ; &108E: BD 68 03
         ADC     ObjectDX,X                           ; &1091: 7D D9 04
@@ -1650,125 +2169,126 @@ TestPlayerMove:
         ADC     ObjectDY,X                           ; &10A0: 7D F0 04
         STA     CollisionBottom                                  ; &10A3: 85 48
         LDA     ObjectDY,X                           ; &10A5: BD F0 04
-        BPL     L10C5                                ; &10A8: 10 1B
-        LDA     #&02                                 ; &10AA: A9 02
+        BPL     TestPlayerMove_ReturnCollisionValue                                ; &10A8: 10 1B
+        LDA     #COLLIDE_FLOOR                       ; &10AA: A9 02
         JSR     CollisionScan                        ; &10AC: 20 72 14
-        BCC     L10C6                                ; &10AF: 90 15
-        LDX     SavedObjectIndex                     ; &10B1: A6 33
-        LDA     #&F6                                 ; &10B3: A9 F6
+        BCC     TestPlayerMove_RestoreRegisters                                ; &10AF: 90 15
+        LDX     CollisionSourceObjectSlot                     ; &10B1: A6 33
+        LDA     #PLAYER_FLOOR_PROBE_DY_LIMIT                                 ; &10B3: A9 F6
         CMP     ObjectDY,X                           ; &10B5: DD F0 04
-        BCS     L10C6                                ; &10B8: B0 0C
-        LDX     CollisionObject                      ; &10BA: A6 64
+        BCS     TestPlayerMove_RestoreRegisters                                ; &10B8: B0 0C
+        LDX     CollidedObjectSlot                      ; &10BA: A6 64
         SEC                                          ; &10BC: 38
         LDA     ObjectY,X                            ; &10BD: BD E3 03
         SBC     CollisionBottom                                  ; &10C0: E5 48
         SEC                                          ; &10C2: 38
-        SBC     #&05                                 ; &10C3: E9 05
-L10C5:
+        SBC     #PLAYER_LANDING_Y_ADJUST              ; &10C3: E9 05
+TestPlayerMove_ReturnCollisionValue:
         ASL     A                                    ; &10C5: 0A
-L10C6:
+TestPlayerMove_RestoreRegisters:
         PLA                                          ; &10C6: 68
         TAY                                          ; &10C7: A8
         PLA                                          ; &10C8: 68
         TAX                                          ; &10C9: AA
         RTS                                          ; &10CA: 60
-Code_StartPlayerJump:
 StartPlayerJump:
-        LDA     #&05                                 ; &10CB: A9 05
+        LDA     #PLAYER_INITIAL_JUMP_DY               ; &10CB: A9 05
         STA     ObjectDY                             ; &10CD: 8D F0 04
         DEC     PlayerAirborneFlag                              ; &10D0: C6 53
         LDA     ObjectDX                             ; &10D2: AD D9 04
-        BEQ     L10DE                                ; &10D5: F0 07
-        LDX     #&36                                 ; &10D7: A2 36
+        BEQ     Airborne_Enter                                ; &10D5: F0 07
+        LDX     #SPRITE_TROGG_FRAME2                 ; &10D7: A2 36
         ASL     A                                    ; &10D9: 0A
-        BCC     L10DE                                ; &10DA: 90 02
-        LDX     #&3A                                 ; &10DC: A2 3A
-L10DE:
-Code_UpdateAirbornePlayer:
+        BCC     Airborne_Enter                                ; &10DA: 90 02
+        LDX     #SPRITE_TROGG_FRAME6                 ; &10DC: A2 3A
+Airborne_Enter:
+; CONTRACT: update jumping/falling Trogg state.
+; Effect: applies vertical velocity/gravity, ceiling/floor tests and fatal-landing threshold.
 UpdateAirbornePlayer:
         JSR     ReadVertical                         ; &10DE: 20 1D 13
         CLC                                          ; &10E1: 18
         LDA     ObjectY                              ; &10E2: AD E3 03
         ADC     ObjectDY                             ; &10E5: 6D F0 04
         BIT     ObjectDY                             ; &10E8: 2C F0 04
-        BPL     L10F3                                ; &10EB: 10 06
-        BCS     L1101                                ; &10ED: B0 12
+        BPL     Airborne_CheckTopBoundary                                ; &10EB: 10 06
+        BCS     Airborne_ApplyGravity                                ; &10ED: B0 12
         LDY     #&00                                 ; &10EF: A0 00
-        BEQ     L1126                                ; &10F1: F0 33
-L10F3:
-        CMP     #&DE                                 ; &10F3: C9 DE
-        BCC     L1101                                ; &10F5: 90 0A
+        BEQ     Airborne_LandOrDie                                ; &10F1: F0 33
+Airborne_CheckTopBoundary:
+        CMP     #PLAYER_Y_CEILING                    ; &10F3: C9 DE
+        BCC     Airborne_ApplyGravity                                ; &10F5: 90 0A
         LDA     #&00                                 ; &10F7: A9 00
         SBC     ObjectDY                             ; &10F9: ED F0 04
         STA     ObjectDY                             ; &10FC: 8D F0 04
-        LDA     #&DE                                 ; &10FF: A9 DE
-L1101:
+        LDA     #PLAYER_Y_CEILING                    ; &10FF: A9 DE
+Airborne_ApplyGravity:
         DEC     ObjectDY                             ; &1101: CE F0 04
         CPY     ObjectY                              ; &1104: CC E3 03
         PHP                                          ; &1107: 08
         TAY                                          ; &1108: A8
         PLP                                          ; &1109: 28
-        BEQ     L1118                                ; &110A: F0 0C
+        BEQ     Airborne_TestMovement                                ; &110A: F0 0C
         LDA     ObjectDY                             ; &110C: AD F0 04
-        CMP     #&F9                                 ; &110F: C9 F9
-        BMI     L1118                                ; &1111: 30 05
+        CMP     #PLAYER_MAX_SAFE_FALL_DY             ; &110F: C9 F9
+        BMI     Airborne_TestMovement                                ; &1111: 30 05
         JSR     TryAttachLadder                                ; &1113: 20 2F 0E
-        BCS     L1126                                ; &1116: B0 0E
-L1118:
+        BCS     Airborne_LandOrDie                                ; &1116: B0 0E
+Airborne_TestMovement:
         LDA     #&00                                 ; &1118: A9 00
         JSR     TestPlayerMove                             ; &111A: 20 85 10
-        BCC     L113A                                ; &111D: 90 1B
-        LDY     CollisionObject                      ; &111F: A4 64
+        BCC     Airborne_Return                                ; &111D: 90 1B
+        LDY     CollidedObjectSlot                      ; &111F: A4 64
         LDA     ObjectY,Y                            ; &1121: B9 E3 03
         TAY                                          ; &1124: A8
         INY                                          ; &1125: C8
-L1126:
+Airborne_LandOrDie:
         INC     PlayerAirborneFlag                              ; &1126: E6 53
         LDA     ObjectDY                             ; &1128: AD F0 04
-        CMP     #&F9                                 ; &112B: C9 F9
-        BPL     L1135                                ; &112D: 10 06
-        CMP     #&F9                                 ; &112F: C9 F9
-        BCS     L1135                                ; &1131: B0 02
-        DEC     PlayerDeathState                     ; &1133: C6 7B
-L1135:
+        CMP     #PLAYER_MAX_SAFE_FALL_DY             ; &112B: C9 F9
+        BPL     Airborne_SetDownwardVelocity                                ; &112D: 10 06
+        CMP     #PLAYER_MAX_SAFE_FALL_DY             ; &112F: C9 F9
+        BCS     Airborne_SetDownwardVelocity                                ; &1131: B0 02
+        DEC     PlayerDeadFlag                     ; &1133: C6 7B
+Airborne_SetDownwardVelocity:
         LDA     #&FF                                 ; &1135: A9 FF
         STA     ObjectDY                             ; &1137: 8D F0 04
-L113A:
+Airborne_Return:
         RTS                                          ; &113A: 60
-Code_UpdateClimbingPlayer:
+; CONTRACT: update ladder/rope climbing.
+; Effect: reads vertical control, toggles climbing sprite, maintains ladder attachment or falls.
 UpdateClimbingPlayer:
         LDA     #&00                                 ; &113B: A9 00
         JSR     TestLadderCollision                  ; &113D: 20 0B 0E
-        BCC     L119F                                ; &1140: 90 5D
+        BCC     Climb_LadderLostStartFalling                                ; &1140: 90 5D
         JSR     ReadVertical                         ; &1142: 20 1D 13
         LDA     ObjectSprite                         ; &1145: AD 5E 04
         CPY     ObjectY                              ; &1148: CC E3 03
-        BEQ     L114F                                ; &114B: F0 02
-        EOR     #&07                                 ; &114D: 49 07
-L114F:
+        BEQ     Climb_SaveSprite                                ; &114B: F0 02
+        EOR     #CLIMB_SPRITE_TOGGLE_MASK            ; &114D: 49 07
+Climb_SaveSprite:
         PHA                                          ; &114F: 48
-        LDX     CollisionObject                      ; &1150: A6 64
-        LDA     #&02                                 ; &1152: A9 02
-        JSR     RandomBelowA                         ; &1154: 20 B6 0D
+        LDX     CollidedObjectSlot                      ; &1150: A6 64
+        LDA     #CLIMB_CORRECTION_RANDOM_MAX        ; &1152: A9 02
+        JSR     RandomUpToA                         ; &1154: 20 B6 0D
         LSR     A                                    ; &1157: 4A
         LDA     #&00                                 ; &1158: A9 00
-        BCC     L1166                                ; &115A: 90 0A
+        BCC     Climb_StoreHorizontalCorrection                                ; &115A: 90 0A
         SEC                                          ; &115C: 38
         LDA     ObjectX,X                            ; &115D: BD 68 03
         SBC     ObjectX                              ; &1160: ED 68 03
         JSR     SignA                                ; &1163: 20 AE 15
-L1166:
+Climb_StoreHorizontalCorrection:
         STA     ObjectDX                             ; &1166: 8D D9 04
         TYA                                          ; &1169: 98
         CMP     ObjectY,X                            ; &116A: DD E3 03
-        BCS     L1187                                ; &116D: B0 18
+        BCS     Climb_CheckLowerFloor                                ; &116D: B0 18
         CPY     ObjectY                              ; &116F: CC E3 03
-        BCS     L119C                                ; &1172: B0 28
+        BCS     Climb_ReturnCurrentSprite                                ; &1172: B0 28
         TYA                                          ; &1174: 98
         JSR     TestFloorCollision                   ; &1175: 20 5F 0E
-        BCC     L119C                                ; &1178: 90 22
-L117A:
-        LDX     CollisionObject                      ; &117A: A6 64
+        BCC     Climb_ReturnCurrentSprite                                ; &1178: 90 22
+Climb_DetachAtFloor:
+        LDX     CollidedObjectSlot                      ; &117A: A6 64
         LDA     ObjectY,X                            ; &117C: BD E3 03
         TAY                                          ; &117F: A8
         INY                                          ; &1180: C8
@@ -1776,84 +2296,89 @@ L117A:
         LDX     PlayerFrameSprite                      ; &1183: A6 58
         PLA                                          ; &1185: 68
         RTS                                          ; &1186: 60
-L1187:
+Climb_CheckLowerFloor:
         CPY     ObjectY                              ; &1187: CC E3 03
-        BCC     L119C                                ; &118A: 90 10
-        BEQ     L119C                                ; &118C: F0 0E
+        BCC     Climb_ReturnCurrentSprite                                ; &118A: 90 10
+        BEQ     Climb_ReturnCurrentSprite                                ; &118C: F0 0E
         LDA     ObjectY                              ; &118E: AD E3 03
         JSR     TestFloorCollision                   ; &1191: 20 5F 0E
-        BCC     L119C                                ; &1194: 90 06
+        BCC     Climb_ReturnCurrentSprite                                ; &1194: 90 06
         TYA                                          ; &1196: 98
         JSR     TestFloorCollision                   ; &1197: 20 5F 0E
-        BCC     L117A                                ; &119A: 90 DE
-L119C:
+        BCC     Climb_DetachAtFloor                                ; &119A: 90 DE
+Climb_ReturnCurrentSprite:
         PLA                                          ; &119C: 68
         TAX                                          ; &119D: AA
         RTS                                          ; &119E: 60
-L119F:
+Climb_LadderLostStartFalling:
         INC     PlayerClimbingFlag                              ; &119F: E6 54
         DEC     PlayerAirborneFlag                              ; &11A1: C6 53
         LDA     #&00                                 ; &11A3: A9 00
         STA     ObjectDX                             ; &11A5: 8D D9 04
         LDX     PlayerFrameSprite                      ; &11A8: A6 58
         RTS                                          ; &11AA: 60
-        EQUB &60    ; runtime &11AB
+UnusedRtsPadding_11AB:
+        EQUB &60    ; runtime &11AB - unreferenced RTS byte/padding retained exactly from original
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: PLAYER FRAME COMMIT + PICKUPS / HAZARDS
+; Movement routines propose the next player state, this block applies scrolling,
+; redraws Trogg, then checks collectible and hazard collisions.
+;
 ; Runtime &11AC: main Trogg/player frame update.
 ; -----------------------------------------------------------------------------
-Code_UpdatePlayerFrame:
+; CONTRACT: commit one visible player frame.
+; Effect: waits for next tick, computes movement, performs scroll, redraws Trogg, then scans
+; collectibles and hazards. Sets PlayerDeadFlag/KeysRemainingMinusOne as appropriate.
 UpdatePlayerFrame:
         LDA     TickCounter                          ; &11AC: A5 44
         SEC                                          ; &11AE: 38
         SBC     LastTick                             ; &11AF: E5 71
-        CMP     #&04                                 ; &11B1: C9 04
-        BCC     Code_UpdatePlayerFrame                     ; &11B3: 90 F7
+        CMP     #PLAYER_UPDATE_DIVISOR              ; &11B1: C9 04
+        BCC     UpdatePlayerFrame                     ; &11B3: 90 F7
         LDA     TickCounter                          ; &11B5: A5 44
         STA     LastTick                             ; &11B7: 85 71
         LDA     #&00                                 ; &11B9: A9 00
-        STA     ScrollRequest                        ; &11BB: 85 52
+        STA     ScrollDirectionFlags                        ; &11BB: 85 52
         LDY     ObjectY                              ; &11BD: AC E3 03
         JSR     UpdatePlayerMotion                   ; &11C0: 20 EB 0F
         CLC                                          ; &11C3: 18
         LDA     ObjectX                              ; &11C4: AD 68 03
         ADC     ObjectDX                             ; &11C7: 6D D9 04
-        CMP     #&04                                 ; &11CA: C9 04
-        BCC     L11D2                                ; &11CC: 90 04
-        CMP     #&C4                                 ; &11CE: C9 C4
-        BCC     L11D5                                ; &11D0: 90 03
-L11D2:
+        CMP     #PLAYER_X_MIN                        ; &11CA: C9 04
+        BCC     PlayerFrame_ClampXToCurrent                                ; &11CC: 90 04
+        CMP     #PLAYER_X_MAX_EXCLUSIVE              ; &11CE: C9 C4
+        BCC     PlayerFrame_StoreProposedState                                ; &11D0: 90 03
+PlayerFrame_ClampXToCurrent:
         LDA     ObjectX                              ; &11D2: AD 68 03
-L11D5:
-        STA     TempObjectX                                  ; &11D5: 85 69
-        STX     TempObjectSprite                                  ; &11D7: 86 68
-        STY     TempObjectY                                  ; &11D9: 84 6A
+PlayerFrame_StoreProposedState:
+        STA     PendingObjectX                                  ; &11D5: 85 69
+        STX     PendingObjectSprite                                  ; &11D7: 86 68
+        STY     PendingObjectY                                  ; &11D9: 84 6A
         CMP     ObjectX                              ; &11DB: CD 68 03
-        BEQ     L1203                                ; &11DE: F0 23
-        BCC     L11F4                                ; &11E0: 90 12
-        CMP     #&A0                                 ; &11E2: C9 A0
-        BCS     L1203                                ; &11E4: B0 1D
-        CMP     #&29                                 ; &11E6: C9 29
-        BCC     L1203                                ; &11E8: 90 19
-        LDA     #&80                                 ; &11EA: A9 80
-        STA     ScrollRequest                        ; &11EC: 85 52
+        BEQ     CommitPlayerState                                ; &11DE: F0 23
+        BCC     PlayerFrame_ScrollLeftCandidate                                ; &11E0: 90 12
+        CMP     #SCROLL_RIGHT_TRIGGER_MAX            ; &11E2: C9 A0
+        BCS     CommitPlayerState                                ; &11E4: B0 1D
+        CMP     #SCROLL_RIGHT_TRIGGER_MIN            ; &11E6: C9 29
+        BCC     CommitPlayerState                                ; &11E8: 90 19
+        LDA     #SCROLL_RIGHT                        ; &11EA: A9 80
+        STA     ScrollDirectionFlags                        ; &11EC: 85 52
         JSR     ScrollViewportRight                                ; &11EE: 20 E5 13
         JMP     CommitPlayerState                    ; &11F1: 4C 03 12
-L11F4:
-        CMP     #&28                                 ; &11F4: C9 28
-        BCC     L1203                                ; &11F6: 90 0B
-        CMP     #&9F                                 ; &11F8: C9 9F
-        BCS     L1203                                ; &11FA: B0 07
-        LDA     #&40                                 ; &11FC: A9 40
-        STA     ScrollRequest                        ; &11FE: 85 52
+PlayerFrame_ScrollLeftCandidate:
+        CMP     #SCROLL_LEFT_TRIGGER_MIN             ; &11F4: C9 28
+        BCC     CommitPlayerState                                ; &11F6: 90 0B
+        CMP     #SCROLL_LEFT_TRIGGER_MAX             ; &11F8: C9 9F
+        BCS     CommitPlayerState                                ; &11FA: B0 07
+        LDA     #SCROLL_LEFT                         ; &11FC: A9 40
+        STA     ScrollDirectionFlags                        ; &11FE: 85 52
         JSR     ScrollViewportLeft                                ; &1200: 20 CB 13
-L1203:
-Code_CommitPlayerState:
 CommitPlayerState:
         LDX     #&00                                 ; &1203: A2 00
         JSR     ObjectStateChanged                                ; &1205: 20 3F 1C
-        BEQ     L1246                                ; &1208: F0 3C
-        LDA     TempObjectY                                  ; &120A: A5 6A
+        BEQ     CommitPlayer_CheckCollectibles                                ; &1208: F0 3C
+        LDA     PendingObjectY                                  ; &120A: A5 6A
         LSR     A                                    ; &120C: 4A
         LSR     A                                    ; &120D: 4A
         STA     PlayerMovePitch                      ; &120E: 8D B8 01
@@ -1861,144 +2386,145 @@ CommitPlayerState:
         JSR     SoundOSWORD7                         ; &1213: 20 A9 18
         LDX     #&00                                 ; &1216: A2 00
         BIT     YoyoActiveFlag                              ; &1218: 24 55
-        BMI     L1222                                ; &121A: 30 06
+        BMI     CommitPlayer_SetCrtcOrigin                                ; &121A: 30 06
         JSR     WaitForTickChange                    ; &121C: 20 01 0D
         JSR     WaitForObjectRaster                  ; &121F: 20 08 0D
-L1222:
+CommitPlayer_SetCrtcOrigin:
         JSR     SetCrtcOrigin                        ; &1222: 20 28 14
-        LDA     ScrollRequest                        ; &1225: A5 52
-        BEQ     L122B                                ; &1227: F0 02
-        DEC     SoundIrqGate                         ; &1229: C6 70
-L122B:
+        LDA     ScrollDirectionFlags                        ; &1225: A5 52
+        BEQ     CommitPlayer_Redraw                                ; &1227: F0 02
+        DEC     ScrollRefreshRequestFlag                         ; &1229: C6 70
+CommitPlayer_Redraw:
         LDX     #&00                                 ; &122B: A2 00
-        JSR     ObjectMode80                         ; &122D: 20 1C 0B
-        LDA     TempObjectSprite                                  ; &1230: A5 68
-        LDX     TempObjectX                                  ; &1232: A6 69
-        LDY     TempObjectY                                  ; &1234: A4 6A
+        JSR     EraseObject                         ; &122D: 20 1C 0B
+        LDA     PendingObjectSprite                                  ; &1230: A5 68
+        LDX     PendingObjectX                                  ; &1232: A6 69
+        LDY     PendingObjectY                                  ; &1234: A4 6A
         JSR     DrawSpriteAt                         ; &1236: 20 32 0B
-        LDA     TempObjectY                                  ; &1239: A5 6A
+        LDA     PendingObjectY                                  ; &1239: A5 6A
         JSR     WaitForRasterAtY                     ; &123B: 20 0B 0D
         LDX     #&00                                 ; &123E: A2 00
-        JSR     ObjectMode40                         ; &1240: 20 18 0B
+        JSR     DrawObjectAndScanCollisions                         ; &1240: 20 18 0B
         JSR     RestoreObjectSnapshot                                ; &1243: 20 53 1C
-L1246:
-        JSR     ObjectMode00                         ; &1246: 20 20 0B
+CommitPlayer_CheckCollectibles:
+        JSR     DrawObject                         ; &1246: 20 20 0B
         LDA     #COLLIDE_COLLECTIBLE                                 ; &1249: A9 10
         JSR     ScanObjectCollisions                                ; &124B: 20 BD 1C
-        BCC     L125C                                ; &124E: 90 0C
-        LDX     CollisionObject                      ; &1250: A6 64
+        BCC     CommitPlayer_CheckHazards                                ; &124E: 90 0C
+        LDX     CollidedObjectSlot                      ; &1250: A6 64
         LDA     ObjectSprite,X                       ; &1252: BD 5E 04
         LDY     #&00                                 ; &1255: A0 00
         JSR     TypeDispatch                         ; &1257: 20 D1 12
         LDX     #&00                                 ; &125A: A2 00
-L125C:
+CommitPlayer_CheckHazards:
         LDA     ObjectY,X                            ; &125C: BD E3 03
-        BEQ     L1268                                ; &125F: F0 07
+        BEQ     CommitPlayer_MarkDead                                ; &125F: F0 07
         LDA     #COLLIDE_PLAYER_HAZARD                                 ; &1261: A9 01
         JSR     ScanObjectCollisions                                ; &1263: 20 BD 1C
-        BCC     L126A                                ; &1266: 90 02
-L1268:
-        DEC     PlayerDeathState                     ; &1268: C6 7B
-L126A:
-        BIT     PlayerDeathState                     ; &126A: 24 7B
-        BPL     L127E                                ; &126C: 10 10
-        LDA     #&8E                                 ; &126E: A9 8E
+        BCC     CommitPlayer_DeathEffects                                ; &1266: 90 02
+CommitPlayer_MarkDead:
+        DEC     PlayerDeadFlag                     ; &1268: C6 7B
+CommitPlayer_DeathEffects:
+        BIT     PlayerDeadFlag                     ; &126A: 24 7B
+        BPL     CommitPlayer_HandleScrollRedraw                                ; &126C: 10 10
+        LDA     #TuneOffsetDeath                                 ; &126E: A9 8E
         JSR     SelectTune                           ; &1270: 20 B4 18
         LDX     ObjectX                              ; &1273: AE 68 03
         LDY     ObjectY                              ; &1276: AC E3 03
-        LDA     #&5B                                 ; &1279: A9 5B
+        LDA     #SPRITE_TROGG_DEATH                                 ; &1279: A9 5B
         JSR     DrawSpriteAt                         ; &127B: 20 32 0B
-L127E:
-        BIT     ScrollRequest                        ; &127E: 24 52
-        BVS     L1287                                ; &1280: 70 05
-        BPL     L12A8                                ; &1282: 10 24
+CommitPlayer_HandleScrollRedraw:
+        BIT     ScrollDirectionFlags                        ; &127E: 24 52
+        BVS     CommitPlayer_RedrawLeftEdge                                ; &1280: 70 05
+        BPL     Collect_Return                                ; &1282: 10 24
         JMP     RedrawRightEdge                                ; &1284: 4C F3 13
-L1287:
+CommitPlayer_RedrawLeftEdge:
         JMP     RedrawLeftEdge                                ; &1287: 4C D9 13
 ; Four-frame walking cycles.  The left-facing sequence is stored in reverse
 ; frame order so the same 0..3 phase counter can be stepped in the opposite
 ; direction without changing the composite Trogg sprite definitions.
 PlayerWalkFramesRight:
-        EQUB &34,&35,&36,&37
+        EQUB SPRITE_TROGG_FRAME0,SPRITE_TROGG_FRAME1,SPRITE_TROGG_FRAME2,SPRITE_TROGG_FRAME3
 PlayerWalkFramesLeft:
-        EQUB &3B,&3A,&39,&38
+        EQUB SPRITE_TROGG_FRAME7,SPRITE_TROGG_FRAME6,SPRITE_TROGG_FRAME5,SPRITE_TROGG_FRAME4
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1292: key pickup.
 ; -----------------------------------------------------------------------------
-Code_KeyCollect:
 KeyCollect:
-        LDA     #&50                                 ; &1292: A9 50
+        LDA     #SCORE_KEY_BCD                                 ; &1292: A9 50
         JSR     AddScoreBCD                          ; &1294: 20 B8 15
-        DEC     KeysRemaining                        ; &1297: C6 7A
-Code_CollectObjectAndSound:
+        DEC     KeysRemainingMinusOne                        ; &1297: C6 7A
 CollectObjectAndSound:
         LDX     #<CollectSoundBlock                  ; &1299: A2 BC
         JSR     SoundOSWORD7                         ; &129B: 20 A9 18
-        LDX     CollisionObject                      ; &129E: A6 64
-Code_EraseCollidedObject:
+        LDX     CollidedObjectSlot                      ; &129E: A6 64
 EraseCollidedObject:
-        JSR     ObjectModeC0                         ; &12A0: 20 23 0B
-        LDA     #&FF                                 ; &12A3: A9 FF
+        JSR     EraseObjectAndScanCollisions                         ; &12A0: 20 23 0B
+        LDA     #OBJECT_EMPTY                                 ; &12A3: A9 FF
         STA     ObjectSprite,X                       ; &12A5: 9D 5E 04
-L12A8:
+Collect_Return:
         RTS                                          ; &12A8: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &12A9: gem pickup.
 ; -----------------------------------------------------------------------------
-Code_GemCollect:
 GemCollect:
-        LDA     #&15                                 ; &12A9: A9 15
+        LDA     #SCORE_GEM_BCD                                 ; &12A9: A9 15
         JSR     AddScoreBCD                          ; &12AB: 20 B8 15
 CollectObjectRefreshStatus:
         JSR     CollectObjectAndSound                ; &12AE: 20 99 12
         JSR     DrawStatus                           ; &12B1: 20 DB 15
-        DEC     SoundIrqGate                         ; &12B4: C6 70
-L12B6:
+        DEC     ScrollRefreshRequestFlag                         ; &12B4: C6 70
+Collect_ReturnNoChange:
         RTS                                          ; &12B6: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &12B7: light-bulb/time pickup.
 ; -----------------------------------------------------------------------------
-Code_BulbCollect:
 BulbCollect:
-        BIT     CountdownState                       ; &12B7: 24 85
-        BMI     L12BD                                ; &12B9: 30 02
-        BVS     L12B6                                ; &12BB: 70 F9
-L12BD:
+        BIT     CountdownFlags                       ; &12B7: 24 85
+        BMI     Bulb_AddTime                                ; &12B9: 30 02
+        BVS     Collect_ReturnNoChange                                ; &12BB: 70 F9
+Bulb_AddTime:
         CLC                                          ; &12BD: 18
         SED                                          ; &12BE: F8
         LDA     TimeLoBCD                            ; &12BF: A5 82
-        ADC     #&10                                 ; &12C1: 69 10
-        CMP     #&60                                 ; &12C3: C9 60
-        BCC     L12CB                                ; &12C5: 90 04
-        SBC     #&60                                 ; &12C7: E9 60
+        ADC     #BULB_TIME_BONUS_BCD                                 ; &12C1: 69 10
+        CMP     #BCD_SECONDS_PER_MINUTE                                 ; &12C3: C9 60
+        BCC     Bulb_StoreTime                                ; &12C5: 90 04
+        SBC     #BCD_SECONDS_PER_MINUTE                                 ; &12C7: E9 60
         INC     TimeHiBCD                            ; &12C9: E6 83
-L12CB:
+Bulb_StoreTime:
         STA     TimeLoBCD                            ; &12CB: 85 82
         CLD                                          ; &12CD: D8
         JMP     CollectObjectRefreshStatus           ; &12CE: 4C AE 12
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: OBJECT-TYPE DISPATCH + CONTROL INPUT
+; Collectible handlers and dynamic hazard handlers share a compact type->routine
+; table; keyboard/joystick readers follow immediately afterwards.
+;
 ; Runtime &12D1: object type dispatcher.
 ; -----------------------------------------------------------------------------
-Code_TypeDispatch:
+; CONTRACT: dispatch an object sprite/type through ObjectTypeDispatchTable.
+; Entry: A=sprite/type; Y=queue descriptor offset used as dispatch-table start context.
+; Effect: invokes collection or dynamic-movement handler when a matching record exists.
 TypeDispatch:
         CMP     ObjectTypeDispatchTable,Y             ; &12D1: D9 EA 12
-        BEQ     L12DB                                ; &12D4: F0 05
+        BEQ     TypeDispatch_Found                                ; &12D4: F0 05
         INY                                          ; &12D6: C8
         INY                                          ; &12D7: C8
         INY                                          ; &12D8: C8
-        BNE     Code_TypeDispatch                    ; &12D9: D0 F6
-L12DB:
+        BNE     TypeDispatch                    ; &12D9: D0 F6
+TypeDispatch_Found:
         PHA                                          ; &12DB: 48
-        LDA     ObjectTypeDispatchTable+1,Y           ; &12DC: B9 EB 12
-        STA     IndirectPtrLo                          ; &12DF: 85 29
-        LDA     ObjectTypeDispatchTable+2,Y           ; &12E1: B9 EC 12
-        STA     IndirectPtrHi                          ; &12E4: 85 2A
+        LDA     ObjectTypeDispatchTable+TYPE_DISPATCH_HANDLER_LO,Y           ; &12DC: B9 EB 12
+        STA     TypeDispatchPtrLo                       ; &12DF: 85 29
+        LDA     ObjectTypeDispatchTable+TYPE_DISPATCH_HANDLER_HI,Y           ; &12E1: B9 EC 12
+        STA     TypeDispatchPtrHi                       ; &12E4: 85 2A
         PLA                                          ; &12E6: 68
-        JMP     (IndirectPtrLo)                        ; &12E7: 6C 29 00
+        JMP     (TypeDispatchPtrLo)                    ; &12E7: 6C 29 00
 
 ; Type-specific actions used both by collectible collision handling and by the
 ; two dynamic hazard queues.  Each record is sprite/type byte + handler word.
@@ -2017,193 +2543,187 @@ ObjectTypeDispatchTable:
 ; -----------------------------------------------------------------------------
 ; Runtime &12F9: horizontal control reader.
 ; -----------------------------------------------------------------------------
-Code_ReadHorizontal:
+; CONTRACT: read horizontal control under current ControlScheme.
+; Return: X/current movement value encodes left, neutral or right according to caller convention.
 ReadHorizontal:
-        LDA     ControlMode                            ; &12F9: A5 86
-        BNE     L130E                                ; &12FB: D0 11
+        LDA     ControlScheme                            ; &12F9: A5 86
+        BNE     ReadHorizontal_Joystick                                ; &12FB: D0 11
         LDA     #KEY_LEFT_Z                                 ; &12FD: A9 9E
         JSR     Inkey                                ; &12FF: 20 9C 0D
-        BEQ     L1305                                ; &1302: F0 01
+        BEQ     ReadHorizontal_CheckRight                                ; &1302: F0 01
         DEX                                          ; &1304: CA
-L1305:
+ReadHorizontal_CheckRight:
         LDA     #KEY_RIGHT_X                                 ; &1305: A9 BD
         JSR     Inkey                                ; &1307: 20 9C 0D
-        BEQ     L130D                                ; &130A: F0 01
-L130C:
+        BEQ     ReadHorizontal_Return                                ; &130A: F0 01
+ReadHorizontal_Positive:
         INX                                          ; &130C: E8
-L130D:
+ReadHorizontal_Return:
         RTS                                          ; &130D: 60
-L130E:
-        LDA     #&01                                 ; &130E: A9 01
+ReadHorizontal_Joystick:
+        LDA     #JOYSTICK_X_CHANNEL                                 ; &130E: A9 01
         JSR     ReadJoystickAxis                    ; &1310: 20 76 13
-        CMP     #&64                                 ; &1313: C9 64
-        BCC     L130C                                ; &1315: 90 F5
-        CMP     #&9C                                 ; &1317: C9 9C
-        BCC     L130D                                ; &1319: 90 F2
+        CMP     #JOYSTICK_LOW_THRESHOLD                                 ; &1313: C9 64
+        BCC     ReadHorizontal_Positive                                ; &1315: 90 F5
+        CMP     #JOYSTICK_HIGH_THRESHOLD                                 ; &1317: C9 9C
+        BCC     ReadHorizontal_Return                                ; &1319: 90 F2
         DEX                                          ; &131B: CA
         RTS                                          ; &131C: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &131D: vertical control reader.
 ; -----------------------------------------------------------------------------
-Code_ReadVertical:
+; CONTRACT: read vertical control under current ControlScheme.
+; Return: signed vertical input used by climbing/jump logic.
 ReadVertical:
-        LDA     ControlMode                            ; &131D: A5 86
-        BNE     L133F                                ; &131F: D0 1E
+        LDA     ControlScheme                            ; &131D: A5 86
+        BNE     ReadVertical_Joystick                                ; &131F: D0 1E
         LDA     #KEY_UP_STAR                                 ; &1321: A9 B7
         JSR     Inkey                                ; &1323: 20 9C 0D
-        BEQ     L132B                                ; &1326: F0 03
+        BEQ     ReadVertical_CheckDown                                ; &1326: F0 03
         JSR     ApplyVerticalPositiveInput                                ; &1328: 20 4C 13
-L132B:
+ReadVertical_CheckDown:
         LDA     #KEY_DOWN_QUESTION                                 ; &132B: A9 97
         JSR     Inkey                                ; &132D: 20 9C 0D
-        BEQ     L133E                                ; &1330: F0 0C
-L1332:
+        BEQ     ReadVertical_Return                                ; &1330: F0 0C
+ReadVertical_NegativeInput:
         DEY                                          ; &1332: 88
         DEY                                          ; &1333: 88
         DEY                                          ; &1334: 88
-        BIT     Orientation                          ; &1335: 24 74
-        BPL     L133E                                ; &1337: 10 05
+        BIT     VerticalFlipFlag                          ; &1335: 24 74
+        BPL     ReadVertical_Return                                ; &1337: 10 05
         CLC                                          ; &1339: 18
         TYA                                          ; &133A: 98
-        ADC     #&06                                 ; &133B: 69 06
+        ADC     #2*VERTICAL_INPUT_STEP               ; &133B: 69 06
         TAY                                          ; &133D: A8
-L133E:
+ReadVertical_Return:
         RTS                                          ; &133E: 60
-L133F:
-        LDA     #&02                                 ; &133F: A9 02
+ReadVertical_Joystick:
+        LDA     #JOYSTICK_Y_CHANNEL                                 ; &133F: A9 02
         JSR     ReadJoystickAxis                    ; &1341: 20 76 13
-        CMP     #&64                                 ; &1344: C9 64
-        BCC     L1332                                ; &1346: 90 EA
-        CMP     #&9C                                 ; &1348: C9 9C
-        BCC     L133E                                ; &134A: 90 F2
+        CMP     #JOYSTICK_LOW_THRESHOLD                                 ; &1344: C9 64
+        BCC     ReadVertical_NegativeInput                                ; &1346: 90 EA
+        CMP     #JOYSTICK_HIGH_THRESHOLD                                 ; &1348: C9 9C
+        BCC     ReadVertical_Return                                ; &134A: 90 F2
 ApplyVerticalPositiveInput:
         INY                                          ; &134C: C8
         INY                                          ; &134D: C8
         INY                                          ; &134E: C8
-        BIT     Orientation                          ; &134F: 24 74
-        BPL     L1358                                ; &1351: 10 05
+        BIT     VerticalFlipFlag                          ; &134F: 24 74
+        BPL     ReadVertical_PositiveReturn                                ; &1351: 10 05
         SEC                                          ; &1353: 38
         TYA                                          ; &1354: 98
-        SBC     #&06                                 ; &1355: E9 06
+        SBC     #2*VERTICAL_INPUT_STEP               ; &1355: E9 06
         TAY                                          ; &1357: A8
-L1358:
+ReadVertical_PositiveReturn:
         RTS                                          ; &1358: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1359: yoyo/alternate control reader.
 ; -----------------------------------------------------------------------------
-Code_ReadYoyoControl:
 ReadYoyoControl:
-        LDA     ControlMode                            ; &1359: A5 86
-        BNE     L1362                                ; &135B: D0 05
+        LDA     ControlScheme                            ; &1359: A5 86
+        BNE     ReadYoyoControl_Joystick                                ; &135B: D0 05
         LDA     #KEY_YOYO_RETURN                                 ; &135D: A9 B6
         JMP     Inkey                                ; &135F: 4C 9C 0D
-L1362:
+ReadYoyoControl_Joystick:
         TXA                                          ; &1362: 8A
         PHA                                          ; &1363: 48
         TYA                                          ; &1364: 98
         PHA                                          ; &1365: 48
-        LDA     #&00                                 ; &1366: A9 00
+        LDA     #JOYSTICK_FIRE_SELECTOR                                 ; &1366: A9 00
         JSR     OSBYTEJoystickRead                  ; &1368: 20 8A 13
-        STX     Scratch26                            ; &136B: 86 26
+        STX     JoystickScratch                            ; &136B: 86 26
         PLA                                          ; &136D: 68
         TAY                                          ; &136E: A8
         PLA                                          ; &136F: 68
         TAX                                          ; &1370: AA
-        LDA     Scratch26                            ; &1371: A5 26
-        AND     #&01                                 ; &1373: 29 01
+        LDA     JoystickScratch                            ; &1371: A5 26
+        AND     #JOYSTICK_FIRE_MASK                                 ; &1373: 29 01
         RTS                                          ; &1375: 60
-Code_ReadJoystickAxis:
 ReadJoystickAxis:
-        STA     Scratch26                            ; &1376: 85 26
+        STA     JoystickScratch                            ; &1376: 85 26
         TXA                                          ; &1378: 8A
         PHA                                          ; &1379: 48
         TYA                                          ; &137A: 98
         PHA                                          ; &137B: 48
-        LDA     Scratch26                            ; &137C: A5 26
+        LDA     JoystickScratch                            ; &137C: A5 26
         JSR     OSBYTEJoystickRead                  ; &137E: 20 8A 13
-        STY     Scratch26                            ; &1381: 84 26
+        STY     JoystickScratch                            ; &1381: 84 26
         PLA                                          ; &1383: 68
         TAY                                          ; &1384: A8
         PLA                                          ; &1385: 68
         TAX                                          ; &1386: AA
-        LDA     Scratch26                            ; &1387: A5 26
+        LDA     JoystickScratch                            ; &1387: A5 26
         RTS                                          ; &1389: 60
-Code_OSBYTEJoystickRead:
 OSBYTEJoystickRead:
         TAX                                          ; &138A: AA
-        LDA     #&80                                 ; &138B: A9 80
+        LDA     #OSBYTE_READ_ADC                                 ; &138B: A9 80
         JMP     OSBYTEWrapper                        ; &138D: 4C FB 0D
-Code_ClearExposedScreenStrip:
 ClearExposedScreenStrip:
-        LDX     #&20                                 ; &1390: A2 20
-        LDA     Scratch26                            ; &1392: A5 26
+        LDX     #MODE1_TEXT_ROWS                     ; &1390: A2 20
+        LDA     SharedScratch26                            ; &1392: A5 26  ; original dead instruction: value is discarded by the next LDA
         LDA     #&00                                 ; &1394: A9 00
-        STA     WorkPtrLo                        ; &1396: 85 3F
+        STA     ScreenClearPtrLo                        ; &1396: 85 3F
         LDY     ScreenOriginLo                                  ; &1398: A4 0C
         LDA     ScreenOriginHi                                  ; &139A: A5 0D
-L139C:
-        STA     WorkPtrHi                        ; &139C: 85 40
+ClearExposedScreenStrip_RowLoop:
+        STA     ScreenClearPtrHi                        ; &139C: 85 40
         LDA     #&00                                 ; &139E: A9 00
-        STA     (WorkPtrLo),Y                    ; &13A0: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13A0: 91 3F
         INY                                          ; &13A2: C8
-        STA     (WorkPtrLo),Y                    ; &13A3: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13A3: 91 3F
         INY                                          ; &13A5: C8
-        STA     (WorkPtrLo),Y                    ; &13A6: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13A6: 91 3F
         INY                                          ; &13A8: C8
-        STA     (WorkPtrLo),Y                    ; &13A9: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13A9: 91 3F
         INY                                          ; &13AB: C8
-        STA     (WorkPtrLo),Y                    ; &13AC: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13AC: 91 3F
         INY                                          ; &13AE: C8
-        STA     (WorkPtrLo),Y                    ; &13AF: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13AF: 91 3F
         INY                                          ; &13B1: C8
-        STA     (WorkPtrLo),Y                    ; &13B2: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13B2: 91 3F
         INY                                          ; &13B4: C8
-        STA     (WorkPtrLo),Y                    ; &13B5: 91 3F
+        STA     (ScreenClearPtrLo),Y                    ; &13B5: 91 3F
         DEX                                          ; &13B7: CA
-        BEQ     L13CA                                ; &13B8: F0 10
+        BEQ     ClearExposedScreenStrip_Return                                ; &13B8: F0 10
         CLC                                          ; &13BA: 18
         TYA                                          ; &13BB: 98
-        ADC     #&79                                 ; &13BC: 69 79
+        ADC     #MODE1_TEXT_ROW_LOW_ADJUST           ; &13BC: 69 79
         TAY                                          ; &13BE: A8
-        LDA     WorkPtrHi                        ; &13BF: A5 40
-        ADC     #&02                                 ; &13C1: 69 02
-        BPL     L139C                                ; &13C3: 10 D7
+        LDA     ScreenClearPtrHi                        ; &13BF: A5 40
+        ADC     #MODE1_TEXT_ROW_HIGH_ADJUST          ; &13C1: 69 02
+        BPL     ClearExposedScreenStrip_RowLoop                                ; &13C3: 10 D7
         SEC                                          ; &13C5: 38
-        SBC     #&50                                 ; &13C6: E9 50
-        BPL     L139C                                ; &13C8: 10 D2
-L13CA:
+        SBC     #MODE1_SCREEN_RING_SIZE_HI           ; &13C6: E9 50
+        BPL     ClearExposedScreenStrip_RowLoop                                ; &13C8: 10 D2
+ClearExposedScreenStrip_Return:
         RTS                                          ; &13CA: 60
-Code_ScrollViewportLeft:
 ScrollViewportLeft:
-        LDY     #&F8                                 ; &13CB: A0 F8
-        LDA     #&FF                                 ; &13CD: A9 FF
+        LDY     #MODE1_SCROLL_LEFT_DELTA_LO          ; &13CB: A0 F8
+        LDA     #MODE1_SCROLL_LEFT_DELTA_HI          ; &13CD: A9 FF
         JSR     AdjustScreenOrigin                  ; &13CF: 20 11 14
         JSR     ClearExposedScreenStrip                                ; &13D2: 20 90 13
         DEC     ViewportXOffset                                  ; &13D5: C6 10
         CLC                                          ; &13D7: 18
         RTS                                          ; &13D8: 60
-Code_RedrawLeftEdge:
 RedrawLeftEdge:
         LDA     #&01                                 ; &13D9: A9 01
         STA     ClipRight                                  ; &13DB: 85 0F
         JSR     DrawAllObjects                          ; &13DD: 20 FF 13
-        LDA     #&50                                 ; &13E0: A9 50
+        LDA     #MODE1_VIEWPORT_COLUMNS              ; &13E0: A9 50
         STA     ClipRight                                  ; &13E2: 85 0F
         RTS                                          ; &13E4: 60
-Code_ScrollViewportRight:
 ScrollViewportRight:
         JSR     ClearExposedScreenStrip                                ; &13E5: 20 90 13
-        LDY     #&08                                 ; &13E8: A0 08
-        LDA     #&00                                 ; &13EA: A9 00
+        LDY     #MODE1_SCROLL_RIGHT_DELTA_LO         ; &13E8: A0 08
+        LDA     #MODE1_SCROLL_RIGHT_DELTA_HI         ; &13EA: A9 00
         JSR     AdjustScreenOrigin                  ; &13EC: 20 11 14
         INC     ViewportXOffset                                  ; &13EF: E6 10
         CLC                                          ; &13F1: 18
         RTS                                          ; &13F2: 60
-Code_RedrawRightEdge:
 RedrawRightEdge:
-        LDA     #&4F                                 ; &13F3: A9 4F
+        LDA     #MODE1_RIGHTMOST_COLUMN              ; &13F3: A9 4F
         STA     ClipLeft                                  ; &13F5: 85 0E
         JSR     DrawAllObjects                          ; &13F7: 20 FF 13
         LDA     #&00                                 ; &13FA: A9 00
@@ -2213,20 +2733,18 @@ RedrawRightEdge:
 ; -----------------------------------------------------------------------------
 ; Runtime &13FF: Routine13FF.
 ; -----------------------------------------------------------------------------
-Code_DrawAllObjects:
 DrawAllObjects:
-        LDX     #&7A                                 ; &13FF: A2 7A
-L1401:
+        LDX     #OBJECT_SLOT_COUNT-1                 ; &13FF: A2 7A
+DrawAllObjects_Loop:
         LDA     ObjectSprite,X                       ; &1401: BD 5E 04
         CMP     #&FF                                 ; &1404: C9 FF
-        BEQ     L140B                                ; &1406: F0 03
-        JSR     ObjectMode00                         ; &1408: 20 20 0B
-L140B:
+        BEQ     DrawAllObjects_Next                                ; &1406: F0 03
+        JSR     DrawObject                         ; &1408: 20 20 0B
+DrawAllObjects_Next:
         DEX                                          ; &140B: CA
         CPX     #&FF                                 ; &140C: E0 FF
-        BNE     L1401                                ; &140E: D0 F1
+        BNE     DrawAllObjects_Loop                                ; &140E: D0 F1
         RTS                                          ; &1410: 60
-Code_AdjustScreenOrigin:
 AdjustScreenOrigin:
         PHA                                          ; &1411: 48
         CLC                                          ; &1412: 18
@@ -2235,45 +2753,47 @@ AdjustScreenOrigin:
         STA     ScreenOriginLo                                  ; &1416: 85 0C
         PLA                                          ; &1418: 68
         ADC     ScreenOriginHi                                  ; &1419: 65 0D
-        BPL     L141F                                ; &141B: 10 02
-        SBC     #&4F                                 ; &141D: E9 4F
-L141F:
+        BPL     AdjustScreenOrigin_CheckUnderflow                                ; &141B: 10 02
+        SBC     #MODE1_RIGHTMOST_COLUMN              ; &141D: E9 4F
+AdjustScreenOrigin_CheckUnderflow:
         CMP     #&00                                 ; &141F: C9 00
-        BCS     L1425                                ; &1421: B0 02
-        ADC     #&50                                 ; &1423: 69 50
-L1425:
+        BCS     AdjustScreenOrigin_Store                                ; &1421: B0 02
+        ADC     #MODE1_SCREEN_RING_SIZE_HI           ; &1423: 69 50
+AdjustScreenOrigin_Store:
         STA     ScreenOriginHi                                  ; &1425: 85 0D
         RTS                                          ; &1427: 60
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: HARDWARE SCROLL + COLLISION / DISPLAY GEOMETRY
+; CRTC start-address changes provide horizontal scrolling. The backing page at
+; &0900 rebuilds newly exposed strips; collision uses recursive sprite bounds.
+;
 ; Runtime &1428: program CRTC screen origin.
 ; -----------------------------------------------------------------------------
-Code_SetCrtcOrigin:
 SetCrtcOrigin:
         LDA     ScreenOriginLo                                  ; &1428: A5 0C
-        STA     WorkPtrLo                        ; &142A: 85 3F
+        STA     CrtcStartAddressLo                     ; &142A: 85 3F
         LDA     ScreenOriginHi                                  ; &142C: A5 0D
         LSR     A                                    ; &142E: 4A
-        ROR     WorkPtrLo                        ; &142F: 66 3F
+        ROR     CrtcStartAddressLo                     ; &142F: 66 3F
         LSR     A                                    ; &1431: 4A
-        ROR     WorkPtrLo                        ; &1432: 66 3F
+        ROR     CrtcStartAddressLo                     ; &1432: 66 3F
         LSR     A                                    ; &1434: 4A
-        ROR     WorkPtrLo                        ; &1435: 66 3F
-        LDX     #&0C                                 ; &1437: A2 0C
+        ROR     CrtcStartAddressLo                     ; &1435: 66 3F
+        LDX     #CRTC_SCREEN_START_HI                ; &1437: A2 0C
         SEI                                          ; &1439: 78
         STX     CRTC_ADDRESS                         ; &143A: 8E 00 FE
         STA     CRTC_DATA                            ; &143D: 8D 01 FE
         INX                                          ; &1440: E8
-        LDA     WorkPtrLo                        ; &1441: A5 3F
+        LDA     CrtcStartAddressLo                     ; &1441: A5 3F
         STX     CRTC_ADDRESS                         ; &1443: 8E 00 FE
         STA     CRTC_DATA                            ; &1446: 8D 01 FE
         CLI                                          ; &1449: 58
         RTS                                          ; &144A: 60
 ; Rebuild the newly exposed MODE 1 strip from the 256-byte backing page at
 ; &0900.  This routine is called after the CRTC origin moves by one column.
-Code_RefreshScrollBuffer:
 RefreshScrollBuffer:
-        LDY #&07
+        LDY #MODE1_SCANLINES_PER_CHAR-1
         SEC
         TYA
         ADC ScreenOriginLo
@@ -2293,7 +2813,7 @@ RefreshScroll_CopyBackingPage:
         BNE RefreshScroll_CopyBackingPage
         TYA                         ; A=0
         INC ScrollCopyPtrHi
-        LDY #&07
+        LDY #MODE1_SCANLINES_PER_CHAR-1
 RefreshScroll_ClearNewEdge:
         STA (ScrollCopyPtrLo),Y
         DEY
@@ -2303,10 +2823,12 @@ RefreshScroll_ClearNewEdge:
 ; -----------------------------------------------------------------------------
 ; Runtime &1472: collision scan.
 ; -----------------------------------------------------------------------------
-Code_CollisionScan:
+; CONTRACT: scan queues selected by CollisionMask for object overlap.
+; Entry: X=current object slot; CollisionMask selects eligible queue descriptors.
+; Return: carry set on collision, with CollidedObjectSlot/CollidedQueueDescriptor populated.
 CollisionScan:
         STA     CollisionMask                                  ; &1472: 85 5A
-        STX     SavedObjectIndex                     ; &1474: 86 33
+        STX     CollisionSourceObjectSlot                     ; &1474: 86 33
         JSR     ResetSpriteBounds                                ; &1476: 20 19 1D
         JSR     AccumulateSpriteBounds+3                                ; &1479: 20 9C 1D
 CollisionScanPrepared:
@@ -2319,42 +2841,42 @@ CollisionScanPrepared:
         LDA     CurrentSpriteY                       ; &1483: A5 12
         PHA                                          ; &1485: 48
         LDY     #&00                                 ; &1486: A0 00
-L1488:
+CollisionScan_NextQueue:
         STY     ScanQueueDescriptor                                  ; &1488: 84 95
-        LDA     QueueDescriptors+2,Y                              ; &148A: B9 02 0B
-        BEQ     L14C1                                ; &148D: F0 32
+        LDA     QueueDescriptors+QUEUE_DESC_TAG,Y                              ; &148A: B9 02 0B
+        BEQ     CollisionScan_NoHit                                ; &148D: F0 32
         LDA     CollisionMask                                  ; &148F: A5 5A
         CMP     #&FF                                 ; &1491: C9 FF
-        BEQ     L149A                                ; &1493: F0 05
-        AND     QueueDescriptors+1,Y                              ; &1495: 39 01 0B
-        BEQ     L14BC                                ; &1498: F0 22
-L149A:
+        BEQ     CollisionScan_StartQueue                                ; &1493: F0 05
+        AND     QueueDescriptors+QUEUE_DESC_COLLISION,Y                              ; &1495: 39 01 0B
+        BEQ     CollisionScan_AdvanceQueue                                ; &1498: F0 22
+CollisionScan_StartQueue:
         LDX     QueueDescriptors,Y                   ; &149A: BE 00 0B
-L149D:
-        CPX     SavedObjectIndex                     ; &149D: E4 33
-        BEQ     L14B3                                ; &149F: F0 12
+CollisionScan_NextObject:
+        CPX     CollisionSourceObjectSlot                     ; &149D: E4 33
+        BEQ     CollisionScan_AdvanceObject                                ; &149F: F0 12
         JSR     LoadObject                           ; &14A1: 20 3C 0B
-        BCS     L14B3                                ; &14A4: B0 0D
+        BCS     CollisionScan_AdvanceObject                                ; &14A4: B0 0D
         JSR     TestSpriteCollision                                ; &14A6: 20 B1 1C
-        BCC     L14B3                                ; &14A9: 90 08
-        STX     CollisionObject                      ; &14AB: 86 64
+        BCC     CollisionScan_AdvanceObject                                ; &14A9: 90 08
+        STX     CollidedObjectSlot                      ; &14AB: 86 64
         LDY     ScanQueueDescriptor                                  ; &14AD: A4 95
         STY     CollidedQueueDescriptor                                  ; &14AF: 84 94
-        BCS     L14C2                                ; &14B1: B0 0F
-L14B3:
+        BCS     CollisionScan_RestoreAndReturn                                ; &14B1: B0 0F
+CollisionScan_AdvanceObject:
         INX                                          ; &14B3: E8
         LDY     ScanQueueDescriptor                                  ; &14B4: A4 95
         TXA                                          ; &14B6: 8A
-        CMP     QueueDescriptors+3,Y                              ; &14B7: D9 03 0B
-        BCC     L149D                                ; &14BA: 90 E1
-L14BC:
+        CMP     QueueDescriptors+QUEUE_DESC_END_SLOT,Y                              ; &14B7: D9 03 0B
+        BCC     CollisionScan_NextObject                                ; &14BA: 90 E1
+CollisionScan_AdvanceQueue:
         INY                                          ; &14BC: C8
         INY                                          ; &14BD: C8
         INY                                          ; &14BE: C8
-        BNE     L1488                                ; &14BF: D0 C7
-L14C1:
+        BNE     CollisionScan_NextQueue                                ; &14BF: D0 C7
+CollisionScan_NoHit:
         CLC                                          ; &14C1: 18
-L14C2:
+CollisionScan_RestoreAndReturn:
         PLA                                          ; &14C2: 68
         STA     CurrentSpriteY                       ; &14C3: 85 12
         PLA                                          ; &14C5: 68
@@ -2368,27 +2890,25 @@ L14C2:
 ; -----------------------------------------------------------------------------
 ; Runtime &14CD: display/orientation initialisation.
 ; -----------------------------------------------------------------------------
-Code_DisplayInit:
 DisplayInit:
         LDA     #&00                                 ; &14CD: A9 00
         STA     ViewportXOffset                                  ; &14CF: 85 10
-Code_ApplyDisplayTransform:
 ApplyDisplayTransform:
         LDA     #&00                                 ; &14D1: A9 00
         STA     ScreenOriginLo                                  ; &14D3: 85 0C
-        LDA     #&30                                 ; &14D5: A9 30
+        LDA     #MODE1_SCREEN_BASE_HI               ; &14D5: A9 30
         STA     ScreenOriginHi                                  ; &14D7: 85 0D
         LDA     #&00                                 ; &14D9: A9 00
         STA     ClipLeft                                  ; &14DB: 85 0E
-        LDA     #&50                                 ; &14DD: A9 50
+        LDA     #MODE1_VIEWPORT_COLUMNS             ; &14DD: A9 50
         STA     ClipRight                                  ; &14DF: 85 0F
         LDA     #&00                                 ; &14E1: A9 00
-        STA     Orientation                          ; &14E3: 85 74
+        STA     VerticalFlipFlag                          ; &14E3: 85 74
         TYA                                          ; &14E5: 98
         LSR     A                                    ; &14E6: 4A
-        BCC     L14EB                                ; &14E7: 90 02
-        DEC     Orientation                          ; &14E9: C6 74
-L14EB:
+        BCC     ApplyDisplayTransform_SetPalette                                ; &14E7: 90 02
+        DEC     VerticalFlipFlag                          ; &14E9: C6 74
+ApplyDisplayTransform_SetPalette:
         JSR     PrintInlineStream                    ; &14EB: 20 21 0D
         EQUB &16,&01,&13,&01,&05,&00,&00,&00,&13,&02,&03,&00,&00,&00,&11,&82    ; runtime &14EE
         EQUB &13,&03,&00,&00,&00,&00,&EA    ; runtime &14FE
@@ -2396,13 +2916,13 @@ L14EB:
         TYA                                          ; &1508: 98
         LSR     A                                    ; &1509: 4A
         LSR     A                                    ; &150A: 4A
-        BCS     L1529                                ; &150B: B0 1C
+        BCS     ApplyDisplayTransform_AlternatePalette                                ; &150B: B0 1C
         PHP                                          ; &150D: 08
         LDA     ScreenColourTable,X                  ; &150E: BD 68 19
         PLP                                          ; &1511: 28
-        BEQ     L1516                                ; &1512: F0 02
+        BEQ     ApplyDisplayTransform_WriteColour                                ; &1512: F0 02
         LDA     #&00                                 ; &1514: A9 00
-L1516:
+ApplyDisplayTransform_WriteColour:
         PHA                                          ; &1516: 48
         JSR     PrintInlineStream                    ; &1517: 20 21 0D
         EQUB &13,&00,&EA    ; runtime &151A
@@ -2411,13 +2931,13 @@ L1516:
         JSR     PrintInlineStream                    ; &1521: 20 21 0D
         EQUB &00,&00,&00,&EA    ; runtime &1524
         RTS                                          ; &1528: 60
-L1529:
-        BNE     L1548                                ; &1529: D0 1D
+ApplyDisplayTransform_AlternatePalette:
+        BNE     ApplyDisplayTransform_ThirdPalette                                ; &1529: D0 1D
         JSR     PrintInlineStream                    ; &152B: 20 21 0D
         EQUB &13,&00,&07,&00,&00,&00,&13,&01,&07,&00,&00,&00,&13,&02,&07,&00    ; runtime &152E
         EQUB &00,&00,&13,&03,&00,&00,&00,&00,&EA    ; runtime &153E
         RTS                                          ; &1547: 60
-L1548:
+ApplyDisplayTransform_ThirdPalette:
         JSR     PrintInlineStream                    ; &1548: 20 21 0D
         EQUB &13,&00,&00,&00,&00,&00,&13,&01,&00,&00,&00,&00,&13,&02,&00,&00    ; runtime &154B
         EQUB &00,&00,&13,&03,&07,&00,&00,&00,&EA    ; runtime &155B
@@ -2426,28 +2946,24 @@ L1548:
 ; -----------------------------------------------------------------------------
 ; Runtime &1565: clear the 256-byte scroll backing page at &0900.
 ; -----------------------------------------------------------------------------
-Code_ClearScrollBackingBuffer:
 ClearScrollBackingBuffer:
         LDY     #&00                                 ; &1565: A0 00
         TYA                                          ; &1567: 98
-L1568:
+ClearScrollBackingBuffer_Loop:
         STA     ScrollBackingBuffer,Y                              ; &1568: 99 00 09
         DEY                                          ; &156B: 88
-        BNE     L1568                                ; &156C: D0 FA
-        LDA     #&09                                 ; &156E: A9 09
+        BNE     ClearScrollBackingBuffer_Loop                                ; &156C: D0 FA
+        LDA     #>ScrollBackingBuffer               ; &156E: A9 09
         STA     VDUScreenBaseHi                                ; &1570: 8D 51 03
         RTS                                          ; &1573: 60
-Code_HideTextCursor:
 HideTextCursor:
         JSR     PrintInlineStream                    ; &1574: 20 21 0D
         EQUB &17,&01,&00,&00,&00,&00,&00,&00,&00,&00,&EA    ; runtime &1577
         RTS                                          ; &1582: 60
-Code_ShowTextCursor:
 ShowTextCursor:
         JSR     PrintInlineStream                    ; &1583: 20 21 0D
         EQUB &17,&01,&01,&00,&00,&00,&00,&00,&00,&00,&EA    ; runtime &1586
         RTS                                          ; &1591: 60
-Code_ComputePrimitiveBounds:
 ComputePrimitiveBounds:
         CLC                                          ; &1592: 18
         LDA     CurrentSpriteX                       ; &1593: A5 11
@@ -2467,21 +2983,26 @@ ComputePrimitiveBounds:
         STA     CollisionTop                                  ; &15AB: 85 47
         RTS                                          ; &15AD: 60
 ; Convert A to -1, 0 or +1 while preserving zero as zero.
-Code_SignA:
 SignA:
-        BEQ     L15B7                                ; &15AE: F0 07
-        BMI     L15B5                                ; &15B0: 30 03
-        LDA     #&01                                 ; &15B2: A9 01
+        BEQ     SignA_Return                                ; &15AE: F0 07
+        BMI     SignA_Negative                                ; &15B0: 30 03
+        LDA     #PLAYER_STEP_RIGHT                                 ; &15B2: A9 01
         RTS                                          ; &15B4: 60
-L15B5:
-        LDA     #&FF                                 ; &15B5: A9 FF
-L15B7:
+SignA_Negative:
+        LDA     #PLAYER_STEP_LEFT                                 ; &15B5: A9 FF
+SignA_Return:
         RTS                                          ; &15B7: 60
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: SCORE, STATUS AND HIGH-SCORE ENTRY
+; Scores are packed BCD; DrawStatus renders time/lives/score and HighScoreInsert
+; maintains the six-entry table plus interactive initials selection.
+;
 ; Runtime &15B8: packed-BCD score addition.
 ; -----------------------------------------------------------------------------
-Code_AddScoreBCD:
+; CONTRACT: add packed-BCD amount in A to the displayed score.
+; Entry: A=packed BCD increment in units of 10 displayed points.
+; Effect: propagates carry through three score bytes and awards a life on the 20,000 boundary bit.
 AddScoreBCD:
         LDY     #&00                                 ; &15B8: A0 00
         CLC                                          ; &15BA: 18
@@ -2489,63 +3010,61 @@ AddScoreBCD:
         ADC     ScoreLo                              ; &15BC: 65 38
         STA     ScoreLo                              ; &15BE: 85 38
         LDA     ScoreMid                             ; &15C0: A5 39
-        STA     Scratch26                            ; &15C2: 85 26
+        STA     PreviousScoreMid                            ; &15C2: 85 26
         TYA                                          ; &15C4: 98
         ADC     ScoreMid                             ; &15C5: 65 39
         STA     ScoreMid                             ; &15C7: 85 39
-        EOR     Scratch26                            ; &15C9: 45 26
-        AND     #&20                                 ; &15CB: 29 20
+        EOR     PreviousScoreMid                            ; &15C9: 45 26
+        AND     #EXTRA_LIFE_SCORE_BIT                                 ; &15CB: 29 20
         PHA                                          ; &15CD: 48
         LDA     #&00                                 ; &15CE: A9 00
         ADC     ScoreHi                              ; &15D0: 65 3A
         STA     ScoreHi                              ; &15D2: 85 3A
         CLD                                          ; &15D4: D8
         PLA                                          ; &15D5: 68
-        BEQ     L15DA                                ; &15D6: F0 02
+        BEQ     AddScoreBCD_Return                                ; &15D6: F0 02
         INC     Lives                                ; &15D8: E6 3B
-L15DA:
+AddScoreBCD_Return:
         RTS                                          ; &15DA: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &15DB: status display.
 ; -----------------------------------------------------------------------------
-Code_DrawStatus:
 DrawStatus:
         JSR     ClearScrollBackingBuffer                          ; &15DB: 20 65 15
-        LDA     #&1E                                 ; &15DE: A9 1E
+        LDA     #VDU_HOME                            ; &15DE: A9 1E
         JSR     OSWRCH                               ; &15E0: 20 EE FF
         SEC                                          ; &15E3: 38
         LDA     TimeHiBCD                            ; &15E4: A5 83
         JSR     PrintBCDNibble                      ; &15E6: 20 2F 16
-        LDA     #&3A                                 ; &15E9: A9 3A
+        LDA     #ASCII_COLON                         ; &15E9: A9 3A
         JSR     OSWRCH                               ; &15EB: 20 EE FF
         SEC                                          ; &15EE: 38
         LDA     TimeLoBCD                            ; &15EF: A5 82
         JSR     PrintPackedBCD                      ; &15F1: 20 24 16
-        LDA     #&09                                 ; &15F4: A9 09
+        LDA     #VDU_CURSOR_RIGHT                    ; &15F4: A9 09
         JSR     OSWRCH                               ; &15F6: 20 EE FF
         SEC                                          ; &15F9: 38
         LDA     Lives                                ; &15FA: A5 3B
         SBC     #&01                                 ; &15FC: E9 01
         SEC                                          ; &15FE: 38
         JSR     PrintBCDNibble                      ; &15FF: 20 2F 16
-        LDA     #&09                                 ; &1602: A9 09
+        LDA     #VDU_CURSOR_RIGHT                    ; &1602: A9 09
         JSR     OSWRCH                               ; &1604: 20 EE FF
         CLC                                          ; &1607: 18
         LDA     ScoreHi                              ; &1608: A5 3A
         JSR     PrintBCDNibble                      ; &160A: 20 2F 16
         LDA     ScoreMid                             ; &160D: A5 39
         JSR     PrintPackedBCD                      ; &160F: 20 24 16
-        BCC     L161A                                ; &1612: 90 06
-        LDA     #&2C                                 ; &1614: A9 2C
+        BCC     DrawStatus_PrintScoreLo                                ; &1612: 90 06
+        LDA     #ASCII_COMMA                         ; &1614: A9 2C
         JSR     OSWRCH                               ; &1616: 20 EE FF
         SEC                                          ; &1619: 38
-L161A:
+DrawStatus_PrintScoreLo:
         LDA     ScoreLo                              ; &161A: A5 38
         JSR     PrintPackedBCD                      ; &161C: 20 24 16
-        LDA     #&30                                 ; &161F: A9 30
+        LDA     #ASCII_ZERO                          ; &161F: A9 30
         JMP     OSWRCH                               ; &1621: 4C EE FF
-Code_PrintPackedBCD:
 PrintPackedBCD:
         PHA                                          ; &1624: 48
         PHP                                          ; &1625: 08
@@ -2556,83 +3075,82 @@ PrintPackedBCD:
         PLP                                          ; &162A: 28
         JSR     PrintBCDNibble                      ; &162B: 20 2F 16
         PLA                                          ; &162E: 68
-Code_PrintBCDNibble:
 PrintBCDNibble:
-        AND     #&0F                                 ; &162F: 29 0F
-        BNE     L1635                                ; &1631: D0 02
-        BCC     L163B                                ; &1633: 90 06
-L1635:
-        ORA     #&30                                 ; &1635: 09 30
+        AND     #BCD_NIBBLE_MASK                     ; &162F: 29 0F
+        BNE     PrintBCDNibble_Emit                                ; &1631: D0 02
+        BCC     PrintBCDNibble_Return                                ; &1633: 90 06
+PrintBCDNibble_Emit:
+        ORA     #ASCII_ZERO                          ; &1635: 09 30
         JSR     OSWRCH                               ; &1637: 20 EE FF
         SEC                                          ; &163A: 38
-L163B:
+PrintBCDNibble_Return:
         RTS                                          ; &163B: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &163C: wait A ticks while still polling pause/start controls.
 ; -----------------------------------------------------------------------------
-Code_DelayWithInput:
 DelayWithInput:
         TAY                                          ; &163C: A8
-L163D:
+DelayWithInput_PollLoop:
         JSR     TimerAndKeys                         ; &163D: 20 2C 0C
-        BEQ     L1646                                ; &1640: F0 04
-        BIT     ControlMode                            ; &1642: 24 86
-        BPL     L164C                                ; &1644: 10 06
-L1646:
+        BEQ     DelayWithInput_WaitTick                                ; &1640: F0 04
+        BIT     ControlScheme                            ; &1642: 24 86
+        BPL     DelayWithInput_Return                                ; &1644: 10 06
+DelayWithInput_WaitTick:
         JSR     WaitForTickChange                    ; &1646: 20 01 0D
         DEY                                          ; &1649: 88
-        BNE     L163D                                ; &164A: D0 F1
-L164C:
+        BNE     DelayWithInput_PollLoop                                ; &164A: D0 F1
+DelayWithInput_Return:
         RTS                                          ; &164C: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &164D: high-score insertion.
 ; -----------------------------------------------------------------------------
-Code_HighScoreInsert:
+; CONTRACT: compare current score with six-entry table and collect initials if qualified.
+; Return: carry/flow distinguishes title return versus immediate new-game restart paths.
 HighScoreInsert:
         TSX                                          ; &164D: BA
-        STX     &7E                                  ; &164E: 86 7E
-        LDA     #&06                                 ; &1650: A9 06
-        STA     Work42                          ; &1652: 85 42
+        STX     SavedAbortStackPtr                                  ; &164E: 86 7E
+        LDA     #HIGH_SCORE_COUNT                    ; &1650: A9 06
+        STA     HighScoreRankNumber                          ; &1652: 85 42
         LDY     #&FF                                 ; &1654: A0 FF
-        LDX     #&1E                                 ; &1656: A2 1E
-L1658:
+        LDX     #HIGH_SCORE_LAST_RECORD              ; &1656: A2 1E
+HighScoreInsert_CompareLoop:
         LDA     ScoreLo                              ; &1658: A5 38
-        CMP     HighScores+5,X                              ; &165A: DD 85 08
+        CMP     HighScores+HIGH_SCORE_SCORE_LO,X                              ; &165A: DD 85 08
         LDA     ScoreMid                             ; &165D: A5 39
-        SBC     HighScores+4,X                              ; &165F: FD 84 08
+        SBC     HighScores+HIGH_SCORE_SCORE_MID,X                              ; &165F: FD 84 08
         LDA     ScoreHi                              ; &1662: A5 3A
-        SBC     HighScores+3,X                              ; &1664: FD 83 08
-        BCC     L1672                                ; &1667: 90 09
-        DEC     Work42                          ; &1669: C6 42
+        SBC     HighScores+HIGH_SCORE_SCORE_HI,X                              ; &1664: FD 83 08
+        BCC     HighScoreInsert_FoundPosition                                ; &1667: 90 09
+        DEC     HighScoreRankNumber                          ; &1669: C6 42
         TXA                                          ; &166B: 8A
         TAY                                          ; &166C: A8
-        SBC     #&06                                 ; &166D: E9 06
+        SBC     #HIGH_SCORE_RECORD_SIZE              ; &166D: E9 06
         TAX                                          ; &166F: AA
-        BPL     L1658                                ; &1670: 10 E6
-L1672:
+        BPL     HighScoreInsert_CompareLoop                                ; &1670: 10 E6
+HighScoreInsert_FoundPosition:
         TYA                                          ; &1672: 98
-        BMI     L164C                                ; &1673: 30 D7
-        STY     Scratch26                            ; &1675: 84 26
-        LDX     #&23                                 ; &1677: A2 23
-L1679:
-        LDA     HighScores-6,X                              ; &1679: BD 7A 08
+        BMI     DelayWithInput_Return                                ; &1673: 30 D7
+        STY     HighScoreInsertOffset                            ; &1675: 84 26
+        LDX     #HIGH_SCORE_LAST_BYTE                ; &1677: A2 23
+HighScoreInsert_ShiftLoop:
+        LDA     HighScores-HIGH_SCORE_RECORD_SIZE,X                              ; &1679: BD 7A 08
         STA     HighScores,X                         ; &167C: 9D 80 08
         DEX                                          ; &167F: CA
-        CPX     Scratch26                            ; &1680: E4 26
-        BPL     L1679                                ; &1682: 10 F5
+        CPX     HighScoreInsertOffset                            ; &1680: E4 26
+        BPL     HighScoreInsert_ShiftLoop                                ; &1682: 10 F5
         LDA     ScoreLo                              ; &1684: A5 38
-        STA     HighScores+5,Y                              ; &1686: 99 85 08
+        STA     HighScores+HIGH_SCORE_SCORE_LO,Y                              ; &1686: 99 85 08
         LDA     ScoreMid                             ; &1689: A5 39
-        STA     HighScores+4,Y                              ; &168B: 99 84 08
+        STA     HighScores+HIGH_SCORE_SCORE_MID,Y                              ; &168B: 99 84 08
         LDA     ScoreHi                              ; &168E: A5 3A
-        STA     HighScores+3,Y                              ; &1690: 99 83 08
-        LDA     #&20                                 ; &1693: A9 20
+        STA     HighScores+HIGH_SCORE_SCORE_HI,Y                              ; &1690: 99 83 08
+        LDA     #ASCII_SPACE                                 ; &1693: A9 20
         STA     HighScores,Y                         ; &1695: 99 80 08
         STA     HighScores+1,Y                              ; &1698: 99 81 08
         STA     HighScores+2,Y                              ; &169B: 99 82 08
-        STY     WorkPtrLo                        ; &169E: 84 3F
+        STY     HighScoreNameOffset                        ; &169E: 84 3F
         LDA     ScreenOriginLo                                  ; &16A0: A5 0C
         STA     VDUScreenBaseLo                                ; &16A2: 8D 50 03
         LDA     ScreenOriginHi                                  ; &16A5: A5 0D
@@ -2644,64 +3162,64 @@ L1679:
         EQUB &75,&6D,&70,&27,&20,&74,&6F,&20,&65,&6E,&74,&65,&72,&20,&6C,&65    ; runtime &16D0
         EQUB &74,&74,&65,&72,&EA    ; runtime &16E0
         JSR     ShowTextCursor                                ; &16E5: 20 83 15
-        LDY     Work42                          ; &16E8: A4 42
+        LDY     HighScoreRankNumber                          ; &16E8: A4 42
         JSR     PrintHighScorePosition                                ; &16EA: 20 B3 1A
-        LDA     #&03                                 ; &16ED: A9 03
-        STA     Work42                          ; &16EF: 85 42
-        LDA     #&41                                 ; &16F1: A9 41
-        STA     Work41                          ; &16F3: 85 41
+        LDA     #HIGH_SCORE_INITIALS                                 ; &16ED: A9 03
+        STA     HighScoreInitialsRemaining                          ; &16EF: 85 42
+        LDA     #ASCII_A                                 ; &16F1: A9 41
+        STA     HighScoreEntryChar                          ; &16F3: 85 41
 HighScoreLetterSelectLoop:
-        LDA     Work41                          ; &16F5: A5 41
+        LDA     HighScoreEntryChar                          ; &16F5: A5 41
         JSR     OSWRCH                               ; &16F7: 20 EE FF
-        LDA     #&08                                 ; &16FA: A9 08
+        LDA     #ASCII_BACKSPACE                                 ; &16FA: A9 08
         JSR     OSWRCH                               ; &16FC: 20 EE FF
 HighScorePollInput:
         JSR     TimerAndKeys                         ; &16FF: 20 2C 0C
-        BNE     L175A                                ; &1702: D0 56
-        LDA     InputState                           ; &1704: A5 87
-        STA     ControlMode                            ; &1706: 85 86
-        LDX     Work41                          ; &1708: A6 41
+        BNE     HighScoreInsert_Return                                ; &1702: D0 56
+        LDA     SelectedControlScheme                           ; &1704: A5 87
+        STA     ControlScheme                            ; &1706: 85 86
+        LDX     HighScoreEntryChar                          ; &1708: A6 41
         JSR     ReadHorizontal                       ; &170A: 20 F9 12
-        CPX     Work41                          ; &170D: E4 41
-        BEQ     L172A                                ; &170F: F0 19
-        CPX     #&7F                                 ; &1711: E0 7F
-        BCC     L1719                                ; &1713: 90 04
-        LDX     #&20                                 ; &1715: A2 20
-        BCS     L171F                                ; &1717: B0 06
-L1719:
-        CPX     #&20                                 ; &1719: E0 20
-        BCS     L171F                                ; &171B: B0 02
-        LDX     #&7E                                 ; &171D: A2 7E
-L171F:
+        CPX     HighScoreEntryChar                          ; &170D: E4 41
+        BEQ     HighScoreInput_CheckCommit                                ; &170F: F0 19
+        CPX     #ASCII_TILDE+1                                 ; &1711: E0 7F
+        BCC     HighScoreInput_CheckLowerBound                                ; &1713: 90 04
+        LDX     #ASCII_SPACE                                 ; &1715: A2 20
+        BCS     HighScoreInput_StoreCharacter                                ; &1717: B0 06
+HighScoreInput_CheckLowerBound:
+        CPX     #ASCII_SPACE                                 ; &1719: E0 20
+        BCS     HighScoreInput_StoreCharacter                                ; &171B: B0 02
+        LDX     #ASCII_TILDE                                 ; &171D: A2 7E
+HighScoreInput_StoreCharacter:
         TXA                                          ; &171F: 8A
-        STA     Work41                          ; &1720: 85 41
+        STA     HighScoreEntryChar                          ; &1720: 85 41
         JSR     OSWRCH                               ; &1722: 20 EE FF
-        LDA     #&08                                 ; &1725: A9 08
+        LDA     #ASCII_BACKSPACE                                 ; &1725: A9 08
         JSR     OSWRCH                               ; &1727: 20 EE FF
-L172A:
+HighScoreInput_CheckCommit:
         LDY     #&FF                                 ; &172A: A0 FF
         JSR     ReadVertical                         ; &172C: 20 1D 13
         TYA                                          ; &172F: 98
-        BMI     L174A                                ; &1730: 30 18
-        LDY     WorkPtrLo                        ; &1732: A4 3F
-        LDA     Work41                          ; &1734: A5 41
+        BMI     HighScoreInput_WaitAndRetry                                ; &1730: 30 18
+        LDY     HighScoreNameOffset                        ; &1732: A4 3F
+        LDA     HighScoreEntryChar                          ; &1734: A5 41
         STA     HighScores,Y                         ; &1736: 99 80 08
         JSR     OSWRCH                               ; &1739: 20 EE FF
-        INC     WorkPtrLo                        ; &173C: E6 3F
-        DEC     Work42                          ; &173E: C6 42
-        BEQ     L1752                                ; &1740: F0 10
-        LDA     #&14                                 ; &1742: A9 14
+        INC     HighScoreNameOffset                        ; &173C: E6 3F
+        DEC     HighScoreInitialsRemaining                          ; &173E: C6 42
+        BEQ     HighScoreInput_Complete                                ; &1740: F0 10
+        LDA     #HIGH_SCORE_ACCEPT_DELAY             ; &1742: A9 14
         JSR     WaitFramesOrInput                                ; &1744: 20 C7 1A
         JMP     HighScoreLetterSelectLoop                                ; &1747: 4C F5 16
-L174A:
-        LDA     #&05                                 ; &174A: A9 05
+HighScoreInput_WaitAndRetry:
+        LDA     #HIGH_SCORE_RETRY_DELAY              ; &174A: A9 05
         JSR     WaitFramesOrInput                                ; &174C: 20 C7 1A
         JMP     HighScorePollInput                                ; &174F: 4C FF 16
-L1752:
+HighScoreInput_Complete:
         JSR     HideTextCursor                                ; &1752: 20 74 15
-        LDA     #&50                                 ; &1755: A9 50
+        LDA     #HIGH_SCORE_FINISH_DELAY             ; &1755: A9 50
         JSR     WaitFramesOrInput                                ; &1757: 20 C7 1A
-L175A:
+HighScoreInsert_Return:
         CLC                                          ; &175A: 18
         RTS                                          ; &175B: 60
 ; -----------------------------------------------------------------------------
@@ -2713,16 +3231,16 @@ L175A:
 ; -----------------------------------------------------------------------------
 ThemeGMap:                              ; Level C: Hooters
         EQUB QUEUE_TROGG,SPRITE_TROGG_FRAME0,&FF
-        EQUB QUEUE_LADDERS,&4A,&4B,&4C,&4D,&FF
-        EQUB QUEUE_FLOORS,&15,&3E,&3F,&40,&41,&42,&43,&FF
+        EQUB QUEUE_LADDERS,SPRITE_THEME_G_LADDER0,SPRITE_THEME_G_LADDER1,SPRITE_THEME_G_LADDER2,SPRITE_THEME_G_LADDER3,&FF
+        EQUB QUEUE_FLOORS,SPRITE_THEME_G_FLOOR0,SPRITE_THEME_G_FLOOR1,SPRITE_THEME_G_FLOOR2,SPRITE_THEME_G_FLOOR3,SPRITE_THEME_G_FLOOR4,SPRITE_THEME_G_FLOOR5,SPRITE_THEME_G_FLOOR6,&FF
         EQUB QUEUE_MONSTERS,SPRITE_HOOTER,&FF
         EQUB QUEUE_COLLECTIBLES,SPRITE_KEY,SPRITE_BULB,SPRITE_GEM,&FF
         EQUB &FF
 
 ThemeJMap:                              ; Level B: Poglets
         EQUB QUEUE_TROGG,SPRITE_TROGG_FRAME0,&FF
-        EQUB QUEUE_FLOORS,&44,&45,&46,&47,&48,&49,&FF
-        EQUB QUEUE_LADDERS,&00,&54,&55,&56,&FF
+        EQUB QUEUE_FLOORS,SPRITE_THEME_J_FLOOR0,SPRITE_THEME_J_FLOOR1,SPRITE_THEME_J_FLOOR2,SPRITE_THEME_J_FLOOR3,SPRITE_THEME_J_FLOOR4,SPRITE_THEME_J_FLOOR5,&FF
+        EQUB QUEUE_LADDERS,SPRITE_THEME_J_LADDER0,SPRITE_THEME_J_LADDER1,SPRITE_THEME_J_LADDER2,SPRITE_THEME_J_LADDER3,&FF
         EQUB QUEUE_MONSTERS,&00,SPRITE_POGLET,&FF
         EQUB QUEUE_COLLECTIBLES,SPRITE_KEY,SPRITE_BULB,SPRITE_GEM,&FF
         EQUB &FF
@@ -2731,8 +3249,8 @@ ThemeCMap:                              ; Level A: Scrubblies
         EQUB QUEUE_TROGG,SPRITE_TROGG_FRAME0,&FF
         EQUB QUEUE_MONSTERS,SPRITE_SCRUBBLY,&FF
         EQUB QUEUE_COLLECTIBLES,SPRITE_KEY,SPRITE_BULB,SPRITE_GEM,&FF
-        EQUB QUEUE_LADDERS,&24,&57,&58,&59,&5A,&FF
-        EQUB QUEUE_FLOORS,&11,&4E,&4F,&50,&51,&52,&53,&FF
+        EQUB QUEUE_LADDERS,SPRITE_THEME_C_LADDER0,SPRITE_THEME_C_LADDER1,SPRITE_THEME_C_LADDER2,SPRITE_THEME_C_LADDER3,SPRITE_THEME_C_LADDER4,&FF
+        EQUB QUEUE_FLOORS,SPRITE_THEME_C_FLOOR0,SPRITE_THEME_C_FLOOR1,SPRITE_THEME_C_FLOOR2,SPRITE_THEME_C_FLOOR3,SPRITE_THEME_C_FLOOR4,SPRITE_THEME_C_FLOOR5,SPRITE_THEME_C_FLOOR6,&FF
         EQUB &FF
 
 ThemeMapLookup:
@@ -2745,83 +3263,89 @@ ThemeMapLookup:
         EQUB &FF
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: LEVEL DECODER
+; Reads theme + queue tags, maps theme-local variants to sprite IDs and fills the
+; fixed object arrays with each record's X/Y coordinate pairs.
+;
 ; Runtime &17B8: level stream decoder.
 ; -----------------------------------------------------------------------------
-Code_LoadLevelStream:
+; CONTRACT: decode one tagged level stream into object arrays.
+; Entry: LevelStreamLo/Hi points at theme byte followed by queue blocks.
+; Effect: maps theme-specific variants to sprite IDs and allocates coordinates into queue slots.
 LoadLevelStream:
         LDX     #&00                                 ; &17B8: A2 00
         LDA     (LevelStreamLo,X)                    ; &17BA: A1 6D
-        STA     Scratch26                            ; &17BC: 85 26
-L17BE:
+        STA     LevelThemeCode                            ; &17BC: 85 26
+Level_FindThemeLoop:
         LDA     ThemeMapLookup,X                              ; &17BE: BD AE 17
-        BMI     L17F2                                ; &17C1: 30 2F
-        CMP     Scratch26                            ; &17C3: C5 26
-        BEQ     L17CC                                ; &17C5: F0 05
+        BMI     Level_ErrorBell                                ; &17C1: 30 2F
+        CMP     LevelThemeCode                            ; &17C3: C5 26
+        BEQ     Level_ThemeFound                                ; &17C5: F0 05
         INX                                          ; &17C7: E8
         INX                                          ; &17C8: E8
         INX                                          ; &17C9: E8
-        BNE     L17BE                                ; &17CA: D0 F2
-L17CC:
-        LDA     ThemeMapLookup+1,X                              ; &17CC: BD AF 17
+        BNE     Level_FindThemeLoop                                ; &17CA: D0 F2
+Level_ThemeFound:
+        LDA     ThemeMapLookup+THEME_LOOKUP_PTR_LO,X                              ; &17CC: BD AF 17
         STA     LevelThemeMapLo                                  ; &17CF: 85 6B
-        LDA     ThemeMapLookup+2,X                              ; &17D1: BD B0 17
+        LDA     ThemeMapLookup+THEME_LOOKUP_PTR_HI,X                              ; &17D1: BD B0 17
         STA     LevelThemeMapHi                                  ; &17D4: 85 6C
         INC     LevelStreamLo                        ; &17D6: E6 6D
-        BNE     L17DC                                ; &17D8: D0 02
+        BNE     Level_ReadQueueTag                                ; &17D8: D0 02
         INC     LevelStreamHi                        ; &17DA: E6 6E
-L17DC:
+Level_ReadQueueTag:
         LDX     #&00                                 ; &17DC: A2 00
         LDY     #&00                                 ; &17DE: A0 00
         LDA     (LevelStreamLo,X)                    ; &17E0: A1 6D
-        BMI     L17F7                                ; &17E2: 30 13
-L17E4:
-        LDA     QueueDescriptors+2,Y                              ; &17E4: B9 02 0B
-        BEQ     L17F2                                ; &17E7: F0 09
+        BMI     Level_Return                                ; &17E2: 30 13
+Level_FindQueueDescriptor:
+        LDA     QueueDescriptors+QUEUE_DESC_TAG,Y                              ; &17E4: B9 02 0B
+        BEQ     Level_ErrorBell                                ; &17E7: F0 09
         CMP     (LevelStreamLo,X)                    ; &17E9: C1 6D
-        BEQ     L1800                                ; &17EB: F0 13
+        BEQ     Level_QueueFound                                ; &17EB: F0 13
         INY                                          ; &17ED: C8
         INY                                          ; &17EE: C8
         INY                                          ; &17EF: C8
-        BNE     L17E4                                ; &17F0: D0 F2
-L17F2:
-        LDA     #&07                                 ; &17F2: A9 07
+        BNE     Level_FindQueueDescriptor                                ; &17F0: D0 F2
+Level_ErrorBell:
+        LDA     #VDU_BELL                                 ; &17F2: A9 07
         JSR     OSWRCH                               ; &17F4: 20 EE FF
-L17F7:
+Level_Return:
         RTS                                          ; &17F7: 60
-L17F8:
+Level_AdvancePastQueueEnd:
         INC     LevelStreamLo                        ; &17F8: E6 6D
-        BNE     L17DC                                ; &17FA: D0 E0
+        BNE     Level_ReadQueueTag                                ; &17FA: D0 E0
         INC     LevelStreamHi                        ; &17FC: E6 6E
-        BNE     L17DC                                ; &17FE: D0 DC
-L1800:
+        BNE     Level_ReadQueueTag                                ; &17FE: D0 DC
+Level_QueueFound:
         STY     LevelQueueDescriptor                                  ; &1800: 84 5C
-        LDA     QueueDescriptors+3,Y                              ; &1802: B9 03 0B
-        STA     WorkPtrHi                        ; &1805: 85 40
+        LDA     QueueDescriptors+QUEUE_DESC_END_SLOT,Y                              ; &1802: B9 03 0B
+        STA     LevelQueueEndSlot                        ; &1805: 85 40
         LDX     QueueDescriptors,Y                   ; &1807: BE 00 0B
         LDY     #&00                                 ; &180A: A0 00
         INC     LevelStreamLo                        ; &180C: E6 6D
-        BNE     L1812                                ; &180E: D0 02
+        BNE     Level_FindVariantGroup                                ; &180E: D0 02
         INC     LevelStreamHi                        ; &1810: E6 6E
-L1812:
+Level_FindVariantGroup:
         LDA     (LevelThemeMapLo),Y                              ; &1812: B1 6B
-        BMI     L17F2                                ; &1814: 30 DC
+        BMI     Level_ErrorBell                                ; &1814: 30 DC
         CMP     LevelQueueDescriptor                                  ; &1816: C5 5C
-        BEQ     L1822                                ; &1818: F0 08
-L181A:
+        BEQ     Level_VariantGroupFound                                ; &1818: F0 08
+Level_SkipVariantList:
         INY                                          ; &181A: C8
         LDA     (LevelThemeMapLo),Y                              ; &181B: B1 6B
-        BPL     L181A                                ; &181D: 10 FB
+        BPL     Level_SkipVariantList                                ; &181D: 10 FB
         INY                                          ; &181F: C8
-        BNE     L1812                                ; &1820: D0 F0
-L1822:
-        STY     WorkPtrLo                        ; &1822: 84 3F
-L1824:
+        BNE     Level_FindVariantGroup                                ; &1820: D0 F0
+Level_VariantGroupFound:
+        STY     LevelVariantBase                        ; &1822: 84 3F
+Level_ReadObjectRecord:
         LDY     #&00                                 ; &1824: A0 00
         SEC                                          ; &1826: 38
         LDA     (LevelStreamLo),Y                    ; &1827: B1 6D
         PHA                                          ; &1829: 48
-        AND     #&07                                 ; &182A: 29 07
-        ADC     WorkPtrLo                        ; &182C: 65 3F
+        AND     #LEVEL_VARIANT_MASK                                 ; &182A: 29 07
+        ADC     LevelVariantBase                        ; &182C: 65 3F
         TAY                                          ; &182E: A8
         LDA     (LevelThemeMapLo),Y                              ; &182F: B1 6B
         STA     LevelObjectSprite                   ; &1831: 85 35
@@ -2829,17 +3353,17 @@ L1824:
         LSR     A                                    ; &1834: 4A
         LSR     A                                    ; &1835: 4A
         LSR     A                                    ; &1836: 4A
-        BEQ     L17F8                                ; &1837: F0 BF
-        STA     Scratch26                            ; &1839: 85 26
+        BEQ     Level_AdvancePastQueueEnd                                ; &1837: F0 BF
+        STA     LevelObjectRemaining                            ; &1839: 85 26
         LDY     #&00                                 ; &183B: A0 00
         DEX                                          ; &183D: CA
-L183E:
+Level_FindFreeSlotLoop:
         INX                                          ; &183E: E8
-        CPX     WorkPtrHi                        ; &183F: E4 40
-        BCS     L17F2                                ; &1841: B0 AF
+        CPX     LevelQueueEndSlot                        ; &183F: E4 40
+        BCS     Level_ErrorBell                                ; &1841: B0 AF
         LDA     ObjectSprite,X                       ; &1843: BD 5E 04
-        CMP     #&FF                                 ; &1846: C9 FF
-        BNE     L183E                                ; &1848: D0 F4
+        CMP     #OBJECT_EMPTY                                 ; &1846: C9 FF
+        BNE     Level_FindFreeSlotLoop                                ; &1848: D0 F4
         INY                                          ; &184A: C8
         LDA     (LevelStreamLo),Y                    ; &184B: B1 6D
         STA     ObjectX,X                            ; &184D: 9D 68 03
@@ -2848,26 +3372,32 @@ L183E:
         STA     ObjectY,X                            ; &1853: 9D E3 03
         LDA     LevelObjectSprite                   ; &1856: A5 35
         STA     ObjectSprite,X                       ; &1858: 9D 5E 04
-        DEC     Scratch26                            ; &185B: C6 26
-        BNE     L183E                                ; &185D: D0 DF
+        DEC     LevelObjectRemaining                            ; &185B: C6 26
+        BNE     Level_FindFreeSlotLoop                                ; &185D: D0 DF
         SEC                                          ; &185F: 38
         TYA                                          ; &1860: 98
         ADC     LevelStreamLo                        ; &1861: 65 6D
         STA     LevelStreamLo                        ; &1863: 85 6D
-        BCC     L1824                                ; &1865: 90 BD
+        BCC     Level_ReadObjectRecord                                ; &1865: 90 BD
         INC     LevelStreamHi                        ; &1867: E6 6E
-        BCS     L1824                                ; &1869: B0 B9
+        BCS     Level_ReadObjectRecord                                ; &1869: B0 B9
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: MUSIC / TRANSITIONS
+; User VIA Timer 1 clocks this compact stream player. The same area also contains
+; screen-complete/title transition animation and the A/B/C metadata tables.
+;
 ; Runtime &186B: music/sound stream step.
 ; -----------------------------------------------------------------------------
-Code_MusicStep:
+; CONTRACT: advance one encoded music-stream item when the IRQ delay expires.
+; Encoding: bits 2..6 pitch, bits 0..1 duration, bit 7 stream terminator.
+; Effect: patches MusicPitch and submits MusicSoundBlock through OSWORD 7.
 MusicStep:
-        LDA     GameState2F                          ; &186B: A5 2F
-        ORA     OSCallGate                           ; &186D: 05 93
-        BMI     L18A8                                ; &186F: 30 37
-        BIT     MusicCountdown                       ; &1871: 24 91
-        BPL     L18A8                                ; &1873: 10 33
+        LDA     MusicInhibitFlag                          ; &186B: A5 2F
+        ORA     MosCallInProgressFlag                           ; &186D: 05 93
+        BMI     MusicStep_Return                                ; &186F: 30 37
+        BIT     MusicDurationCounter                       ; &1871: 24 91
+        BPL     MusicStep_Return                                ; &1873: 10 33
         TXA                                          ; &1875: 8A
         PHA                                          ; &1876: 48
         TYA                                          ; &1877: 98
@@ -2876,23 +3406,23 @@ MusicStep:
         LDX     SoundStream,Y                        ; &187B: BE 07 05
         INY                                          ; &187E: C8
         TXA                                          ; &187F: 8A
-        AND     #&7C                                 ; &1880: 29 7C
+        AND     #MUSIC_PITCH_MASK                                 ; &1880: 29 7C
         STA     MusicPitch                           ; &1882: 8D A8 01
         TXA                                          ; &1885: 8A
-        BPL     L1892                                ; &1886: 10 0A
-        LDX     SelectedTuneOffsetSlot                                  ; &1888: A6 8A
-        LDY     &00,X                                ; &188A: B4 00  ; X is the ZP address &8B-&8F
-        CPX     #&8E                                 ; &188C: E0 8E
-        BCC     L1892                                ; &188E: 90 02
-        DEC     GameState2F                          ; &1890: C6 2F
-L1892:
-        AND     #&03                                 ; &1892: 29 03
+        BPL     MusicStep_DecodeDuration                                ; &1886: 10 0A
+        LDX     CurrentTuneOffsetSlot                                  ; &1888: A6 8A
+        LDY     ZeroPageBase,X                        ; &188A: B4 00  ; X selects TuneOffsetScreenA..TuneOffsetComplete
+        CPX     #TuneOffsetDeath                                 ; &188C: E0 8E
+        BCC     MusicStep_DecodeDuration                                ; &188E: 90 02
+        DEC     MusicInhibitFlag                          ; &1890: C6 2F
+MusicStep_DecodeDuration:
+        AND     #MUSIC_DURATION_MASK                                 ; &1892: 29 03
         SEC                                          ; &1894: 38
         ADC     #&00                                 ; &1895: 69 00
         ASL     A                                    ; &1897: 0A
         ASL     A                                    ; &1898: 0A
-        ADC     MusicCountdown                       ; &1899: 65 91
-        STA     MusicCountdown                       ; &189B: 85 91
+        ADC     MusicDurationCounter                       ; &1899: 65 91
+        STA     MusicDurationCounter                       ; &189B: 85 91
         STY     TuneStreamPosition                                  ; &189D: 84 90
         LDX     #<MusicSoundBlock                    ; &189F: A2 A4
         JSR     SoundOSWORD7                         ; &18A1: 20 A9 18
@@ -2900,124 +3430,117 @@ L1892:
         TAY                                          ; &18A5: A8
         PLA                                          ; &18A6: 68
         TAX                                          ; &18A7: AA
-L18A8:
+MusicStep_Return:
         RTS                                          ; &18A8: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &18A9: SoundOSWORD7.
 ; -----------------------------------------------------------------------------
-Code_SoundOSWORD7:
 SoundOSWORD7:
         LDY     #&01                                 ; &18A9: A0 01
-        BIT     SoundDisabledFlag                         ; &18AB: 24 4B
-        BMI     L18A8                                ; &18AD: 30 F9
-        LDA     #&07                                 ; &18AF: A9 07
+        BIT     SoundMutedFlag                         ; &18AB: 24 4B
+        BMI     MusicStep_Return                                ; &18AD: 30 F9
+        LDA     #OSWORD_SOUND                                 ; &18AF: A9 07
         JMP     OSWORDWrapper                        ; &18B1: 4C 03 0E
 
 ; -----------------------------------------------------------------------------
 ; Runtime &18B4: select tune/effect.
 ; -----------------------------------------------------------------------------
-Code_SelectTune:
 SelectTune:
         TAX                                          ; &18B4: AA
-        STX     SelectedTuneOffsetSlot                                  ; &18B5: 86 8A
-        LDA     &00,X                                ; &18B7: B5 00  ; X is the ZP address &8B-&8F
+        STX     CurrentTuneOffsetSlot                                  ; &18B5: 86 8A
+        LDA     ZeroPageBase,X                        ; &18B7: B5 00  ; X selects TuneOffsetScreenA..TuneOffsetComplete
         STA     TuneStreamPosition                                  ; &18B9: 85 90
-        LDX     #&A8                                 ; &18BB: A2 A8
-        LDY     #&61                                 ; &18BD: A0 61
+        LDX     #MUSIC_TIMER_RELOAD_LO               ; &18BB: A2 A8
+        LDY     #MUSIC_TIMER_RELOAD_HI               ; &18BD: A0 61
         STY     USER_VIA_T1CH                                ; &18BF: 8C 65 FE
         STX     USER_VIA_T1CL                        ; &18C2: 8E 64 FE
         LDA     #&00                                 ; &18C5: A9 00
-        STA     MusicCountdown                       ; &18C7: 85 91
-        STA     GameState2F                          ; &18C9: 85 2F
+        STA     MusicDurationCounter                       ; &18C7: 85 91
+        STA     MusicInhibitFlag                          ; &18C9: 85 2F
         RTS                                          ; &18CB: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &18CC: screen-complete transition.
 ; -----------------------------------------------------------------------------
-Code_ScreenComplete:
 ScreenComplete:
-        LDA     #&8F                                 ; &18CC: A9 8F
+        LDA     #TuneOffsetComplete                                 ; &18CC: A9 8F
         JSR     SelectTune                           ; &18CE: 20 B4 18
         JSR     ResetCountdownDivider                ; &18D1: 20 27 0C
-        STA     SoundIrqGate                         ; &18D4: 85 70
+        STA     ScrollRefreshRequestFlag                         ; &18D4: 85 70
         LDX     BaseScreen                           ; &18D6: A6 3C
         LDY     TransformCycle                       ; &18D8: A4 3D
         JSR     ApplyDisplayTransform               ; &18DA: 20 D1 14
         JSR     ShowScreenCompleteText              ; &18DD: 20 1F 1B
         LDA     #&FF                                 ; &18E0: A9 FF
-        STA     SoundIrqGate                         ; &18E2: 85 70
+        STA     ScrollRefreshRequestFlag                         ; &18E2: 85 70
         LDA     #&01                                 ; &18E4: A9 01
         STA     ObjectDY                             ; &18E6: 8D F0 04
-        LDA     #&3C                                 ; &18E9: A9 3C
-        STA     TempCounter34                         ; &18EB: 85 34
+        LDA     #SCREEN_COMPLETE_FRAMES              ; &18E9: A9 3C
+        STA     TransitionFramesRemaining                         ; &18EB: 85 34
         LDX     #&01                                 ; &18ED: A2 01
         STX     ObjectDX                             ; &18EF: 8E D9 04
         DEX                                          ; &18F2: CA
-        JSR     ObjectMode00                         ; &18F3: 20 20 0B
+        JSR     DrawObject                         ; &18F3: 20 20 0B
         SEC                                          ; &18F6: 38
-        BCS     L1922                                ; &18F7: B0 29
-Code_TransitionFromRight:
+        BCS     RunTransitionAnimation                                ; &18F7: B0 29
 TransitionFromRight:
-        LDA     #&50                                 ; &18F9: A9 50
+        LDA     #MODE1_VIEWPORT_COLUMNS             ; &18F9: A9 50
         PHA                                          ; &18FB: 48
         LDY     #&FF                                 ; &18FC: A0 FF
-        LDA     #&06                                 ; &18FE: A9 06
-        LDX     #&01                                 ; &1900: A2 01
-        BNE     L190D                                ; &1902: D0 09
-Code_TransitionFromLeft:
+        LDA     #TRANSITION_SCRUBBLY_SEQUENCE_INDEX                                 ; &18FE: A9 06
+        LDX     #TRANSITION_SCRUBBLY_SLOT                                 ; &1900: A2 01
+        BNE     Transition_StoreVelocity                                ; &1902: D0 09
 TransitionFromLeft:
         LDA     #&00                                 ; &1904: A9 00
         PHA                                          ; &1906: 48
         LDY     #&01                                 ; &1907: A0 01
-        LDA     #&01                                 ; &1909: A9 01
-        LDX     #&00                                 ; &190B: A2 00
-L190D:
+        LDA     #TRANSITION_TROGG_SEQUENCE_INDEX                                 ; &1909: A9 01
+        LDX     #TRANSITION_TROGG_SLOT                                 ; &190B: A2 00
+Transition_StoreVelocity:
         STA     ObjectDY,X                           ; &190D: 9D F0 04
         TYA                                          ; &1910: 98
         STA     ObjectDX,X                           ; &1911: 9D D9 04
         PLA                                          ; &1914: 68
         STA     ObjectX,X                            ; &1915: 9D 68 03
-        LDA     #&1F                                 ; &1918: A9 1F
-        STA     TempCounter34                         ; &191A: 85 34
-        LDA     #&52                                 ; &191C: A9 52
+        LDA     #TRANSITION_TITLE_FRAMES             ; &1918: A9 1F
+        STA     TransitionFramesRemaining                         ; &191A: 85 34
+        LDA     #TRANSITION_Y                        ; &191C: A9 52
         STA     ObjectY,X                            ; &191E: 9D E3 03
         CLC                                          ; &1921: 18
-L1922:
-Code_RunTransitionAnimation:
 RunTransitionAnimation:
         PHP                                          ; &1922: 08
-L1923:
-        LDA     #&04                                 ; &1923: A9 04
+Transition_FrameLoop:
+        LDA     #TRANSITION_FRAME_DELAY              ; &1923: A9 04
         JSR     DelayWithInput                          ; &1925: 20 3C 16
         PLP                                          ; &1928: 28
         PHP                                          ; &1929: 08
-        BCS     L192F                                ; &192A: B0 03
+        BCS     Transition_DrawFrame                                ; &192A: B0 03
         JSR     PollAttractInput                    ; &192C: 20 D7 1A
-L192F:
+Transition_DrawFrame:
         JSR     WaitForObjectRaster                  ; &192F: 20 08 0D
-        JSR     ObjectMode80                         ; &1932: 20 1C 0B
+        JSR     EraseObject                         ; &1932: 20 1C 0B
         CLC                                          ; &1935: 18
         LDA     ObjectX,X                            ; &1936: BD 68 03
         ADC     ObjectDX,X                           ; &1939: 7D D9 04
         STA     ObjectX,X                            ; &193C: 9D 68 03
         LDY     ObjectDY,X                           ; &193F: BC F0 04
-L1942:
+Transition_NextSequenceByte:
         INY                                          ; &1942: C8
         LDA     TransitionSpriteSequence,Y           ; &1943: B9 60 19
-        BPL     L1950                                ; &1946: 10 08
-L1948:
+        BPL     Transition_StoreSprite                                ; &1946: 10 08
+Transition_FindDelimiter:
         DEY                                          ; &1948: 88
         LDA     TransitionSpriteSequence,Y           ; &1949: B9 60 19
-        BPL     L1948                                ; &194C: 10 FA
-        BMI     L1942                                ; &194E: 30 F2
-L1950:
+        BPL     Transition_FindDelimiter                                ; &194C: 10 FA
+        BMI     Transition_NextSequenceByte                                ; &194E: 30 F2
+Transition_StoreSprite:
         STA     ObjectSprite,X                       ; &1950: 9D 5E 04
         TYA                                          ; &1953: 98
         STA     ObjectDY,X                           ; &1954: 9D F0 04
-        JSR     ObjectMode00                         ; &1957: 20 20 0B
-        DEC     TempCounter34                         ; &195A: C6 34
-        BNE     L1923                                ; &195C: D0 C5
+        JSR     DrawObject                         ; &1957: 20 20 0B
+        DEC     TransitionFramesRemaining                         ; &195A: C6 34
+        BNE     Transition_FrameLoop                                ; &195C: D0 C5
         PLP                                          ; &195E: 28
         RTS                                          ; &195F: 60
 ; Sprite sequence used by the shared title/screen-complete animation code.
@@ -3026,8 +3549,9 @@ TransitionSpriteSequence:
         EQUB &FF,&34,&35,&36,&37,&FF,&12,&FF
 
 ; Base-screen foreground/palette selector consumed by ApplyDisplayTransform.
+; MOD: Base-screen colour selectors. Editing these changes the normal palette choice for screens A/B/C; TransformCycle still applies alternate palettes.
 ScreenColourTable:
-        EQUB &06,&02,&01
+        EQUB BBC_COLOUR_CYAN,BBC_COLOUR_GREEN,BBC_COLOUR_RED
 
 ; Three base screens.  After screen C, BaseScreen wraps and TransformCycle
 ; advances, giving 3 layouts x 8 transformations = 24 gameplay states.
@@ -3035,62 +3559,66 @@ LevelStreamPtrLoTable:
         EQUB <LevelA,<LevelB,<LevelC
 LevelStreamPtrHiTable:
         EQUB >LevelA,>LevelB,>LevelC
+; MOD: Starting times for screens A/B/C are BCD minutes with TimeLoBCD initially 00. Current values are 2:00, 3:00 and 4:00.
 InitialTimeHiTable:
         EQUB &02,&03,&04             ; 2:00, 3:00, 4:00 (TimeLoBCD starts at 00)
+; MOD: Change these three tune-offset selectors to swap which existing tune plays on base screens A/B/C.
 InitialTuneTable:
         EQUB TuneOffsetScreenA,TuneOffsetScreenB,TuneOffsetScreenC
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: ATTRACT / TITLE / HIGH-SCORE PRESENTATION
+; Generates the animated title sequence, random decorative sprites/characters,
+; high-score display and stack-unwind start-input handling.
+;
 ; Runtime &1977: title/start sequence.
 ; -----------------------------------------------------------------------------
-Code_TitleStartSequence:
 TitleStartSequence:
         TSX                                          ; &1977: BA
-        STX     &7E                                  ; &1978: 86 7E
+        STX     SavedAbortStackPtr                                  ; &1978: 86 7E
         LDX     #&01                                 ; &197A: A2 01
         LDY     #&00                                 ; &197C: A0 00
         JSR     DisplayInit                          ; &197E: 20 CD 14
-        LDA     #&03                                 ; &1981: A9 03
-        JSR     RandomBelowA                         ; &1983: 20 B6 0D
+        LDA     #TITLE_RANDOM_SPRITE_MAX             ; &1981: A9 03
+        JSR     RandomUpToA                         ; &1983: 20 B6 0D
         TAY                                          ; &1986: A8
         LDA     TitleRandomSpriteTable,Y             ; &1987: B9 1B 1B
-        STA     &7C                                  ; &198A: 85 7C
-        LDA     #&7D                                 ; &198C: A9 7D
-        STA     &7D                                  ; &198E: 85 7D
-L1990:
-        LDA     #&50                                 ; &1990: A9 50
-        JSR     RandomBelowA                         ; &1992: 20 B6 0D
+        STA     TitleRandomSprite                                  ; &198A: 85 7C
+        LDA     #TITLE_RANDOM_DRAW_COUNT             ; &198C: A9 7D
+        STA     TitleRandomDrawCount                                  ; &198E: 85 7D
+Title_RandomDrawLoop:
+        LDA     #MODE1_VIEWPORT_COLUMNS             ; &1990: A9 50
+        JSR     RandomUpToA                         ; &1992: 20 B6 0D
         TAX                                          ; &1995: AA
         JSR     WaitForTickChange                    ; &1996: 20 01 0D
         LDA     #&FF                                 ; &1999: A9 FF
-        JSR     RandomBelowA                         ; &199B: 20 B6 0D
+        JSR     RandomUpToA                         ; &199B: 20 B6 0D
         TAY                                          ; &199E: A8
-        LDA     &7C                                  ; &199F: A5 7C
+        LDA     TitleRandomSprite                                  ; &199F: A5 7C
         JSR     DrawSpriteAt                         ; &19A1: 20 32 0B
         JSR     PollAttractInput                    ; &19A4: 20 D7 1A
-        DEC     &7D                                  ; &19A7: C6 7D
-        BNE     L1990                                ; &19A9: D0 E5
+        DEC     TitleRandomDrawCount                                  ; &19A7: C6 7D
+        BNE     Title_RandomDrawLoop                                ; &19A9: D0 E5
         JSR     PrintTitleBanner                    ; &19AB: 20 DA 19
-        LDA     #&1A                                 ; &19AE: A9 1A
+        LDA     #VDU_DEFAULT_WINDOWS                ; &19AE: A9 1A
         JSR     OSWRCH                               ; &19B0: 20 EE FF
         JSR     HideTextCursor                      ; &19B3: 20 74 15
-        LDA     #&0C                                 ; &19B6: A9 0C
+        LDA     #TITLE_CLIP_LEFT                     ; &19B6: A9 0C
         STA     ClipLeft                                  ; &19B8: 85 0E
-        LDA     #&44                                 ; &19BA: A9 44
+        LDA     #TITLE_CLIP_RIGHT                    ; &19BA: A9 44
         STA     ClipRight                                  ; &19BC: 85 0F
         JSR     TransitionFromLeft                  ; &19BE: 20 04 19
         JSR     TransitionFromRight                 ; &19C1: 20 F9 18
-        LDA     #&4B                                 ; &19C4: A9 4B
+        LDA     #TITLE_TRANSITION_DELAY              ; &19C4: A9 4B
         JSR     DelayWithInput                          ; &19C6: 20 3C 16
-        LDA     #&5B                                 ; &19C9: A9 5B
+        LDA     #SPRITE_TROGG_DEATH                                 ; &19C9: A9 5B
         LDX     ObjectX                              ; &19CB: AE 68 03
-        LDY     #&52                                 ; &19CE: A0 52
+        LDY     #TITLE_FINAL_Y                       ; &19CE: A0 52
         JSR     DrawSpriteAt                         ; &19D0: 20 32 0B
-        LDA     #&FA                                 ; &19D3: A9 FA
+        LDA     #TITLE_FINAL_WAIT                    ; &19D3: A9 FA
         JSR     WaitFramesOrInput                                ; &19D5: 20 C7 1A
         CLC                                          ; &19D8: 18
         RTS                                          ; &19D9: 60
-Code_PrintTitleBanner:
 PrintTitleBanner:
         JSR     PrintInlineStream                    ; &19DA: 20 21 0D
         EQUB &11,&80,&1C,&06,&16,&21,&08,&19,&04,&BF,&00,&1F,&01,&19,&01,&81    ; runtime &19DD
@@ -3105,57 +3633,55 @@ PrintTitleBanner:
 ; -----------------------------------------------------------------------------
 ; Runtime &1A52: high-score display.
 ; -----------------------------------------------------------------------------
-Code_ShowHighScores:
 ShowHighScores:
         LDX     #&00                                 ; &1A52: A2 00
-        STX     ObjectCount                                  ; &1A54: 86 60
-L1A56:
-        LDY     ObjectCount                                  ; &1A56: A4 60
+        STX     HighScoreRowIndex                                  ; &1A54: 86 60
+ShowHighScores_NextRecord:
+        LDY     HighScoreRowIndex                                  ; &1A56: A4 60
         JSR     PrintHighScorePosition              ; &1A58: 20 B3 1A
-        LDY     #&03                                 ; &1A5B: A0 03
-L1A5D:
+        LDY     #HIGH_SCORE_INITIALS                                 ; &1A5B: A0 03
+ShowHighScores_PrintInitials:
         LDA     HighScores,X                         ; &1A5D: BD 80 08
         JSR     OSWRCH                               ; &1A60: 20 EE FF
         INX                                          ; &1A63: E8
         DEY                                          ; &1A64: 88
-        BNE     L1A5D                                ; &1A65: D0 F6
-        LDA     #&20                                 ; &1A67: A9 20
+        BNE     ShowHighScores_PrintInitials                                ; &1A65: D0 F6
+        LDA     #ASCII_SPACE                                 ; &1A67: A9 20
         JSR     OSWRCH                               ; &1A69: 20 EE FF
-        LDY     #&03                                 ; &1A6C: A0 03
+        LDY     #HIGH_SCORE_INITIALS                                 ; &1A6C: A0 03
         CLC                                          ; &1A6E: 18
-L1A6F:
+ShowHighScores_PrintScoreBytes:
         LDA     HighScores,X                         ; &1A6F: BD 80 08
         STA.ABS HardwareStackPage-1,Y                              ; &1A72: 99 FF 00
         STA     HardwareStackPage+2,Y                              ; &1A75: 99 02 01
         JSR     PrintPackedBCD                      ; &1A78: 20 24 16
         INX                                          ; &1A7B: E8
         DEY                                          ; &1A7C: 88
-        BNE     L1A6F                                ; &1A7D: D0 F0
-        LDA     #&30                                 ; &1A7F: A9 30
+        BNE     ShowHighScores_PrintScoreBytes                                ; &1A7D: D0 F0
+        LDA     #ASCII_ZERO                                 ; &1A7F: A9 30
         JSR     OSWRCH                               ; &1A81: 20 EE FF
-        LDY     ObjectCount                                  ; &1A84: A4 60
+        LDY     HighScoreRowIndex                                  ; &1A84: A4 60
         JSR     PrintHighScorePosition              ; &1A86: 20 B3 1A
-        LDA     #&09                                 ; &1A89: A9 09
-        LDY     #&0B                                 ; &1A8B: A0 0B
-L1A8D:
+        LDA     #VDU_CURSOR_RIGHT                                 ; &1A89: A9 09
+        LDY     #HIGH_SCORE_SPACING_TABS                                 ; &1A8B: A0 0B
+ShowHighScores_SpacingLoop:
         JSR     OSWRCH                               ; &1A8D: 20 EE FF
         DEY                                          ; &1A90: 88
-        BNE     L1A8D                                ; &1A91: D0 FA
+        BNE     ShowHighScores_SpacingLoop                                ; &1A91: D0 FA
         JSR     PrintInlineStream                    ; &1A93: 20 21 0D
         EQUB &28,&EA    ; runtime &1A96
-        LDA     #&63                                 ; &1A98: A9 63
+        LDA     #TITLE_RANDOM_CHAR_SEED_1                                 ; &1A98: A9 63
         JSR     PrintPseudoRandomTitleChar                                ; &1A9A: 20 F9 1A
-        LDA     #&2A                                 ; &1A9D: A9 2A
+        LDA     #TITLE_RANDOM_CHAR_SEED_2                                 ; &1A9D: A9 2A
         JSR     PrintPseudoRandomTitleChar                                ; &1A9F: 20 F9 1A
-        LDA     #&F7                                 ; &1AA2: A9 F7
+        LDA     #TITLE_RANDOM_CHAR_SEED_3                                 ; &1AA2: A9 F7
         JSR     PrintPseudoRandomTitleChar                                ; &1AA4: 20 F9 1A
         JSR     PrintInlineStream                    ; &1AA7: 20 21 0D
         EQUB &29,&EA    ; runtime &1AAA
-        INC     ObjectCount                                  ; &1AAC: E6 60
-        CPX     #&24                                 ; &1AAE: E0 24
-        BCC     L1A56                                ; &1AB0: 90 A4
+        INC     HighScoreRowIndex                                  ; &1AAC: E6 60
+        CPX     #HIGH_SCORE_TABLE_BYTES                                 ; &1AAE: E0 24
+        BCC     ShowHighScores_NextRecord                                ; &1AB0: 90 A4
         RTS                                          ; &1AB2: 60
-Code_PrintHighScorePosition:
 PrintHighScorePosition:
         LDA     HighScorePositionRowTable,Y                              ; &1AB3: B9 C1 1A
         PHA                                          ; &1AB6: 48
@@ -3165,62 +3691,63 @@ PrintHighScorePosition:
         JMP     OSWRCH                               ; &1ABE: 4C EE FF
 HighScorePositionRowTable:
         EQUB &09,&0B,&0C,&0D,&0E,&0F    ; runtime &1AC1
+; CONTRACT: wait for A game ticks while servicing timer/controls.
+; Entry: A=count; A=0 intentionally wraps Y and means 256 ticks.
+; Exit: normal expiry returns normally; start input may unwind to SavedAbortStackPtr.
 WaitFramesOrInput:
         TAY                                          ; &1AC7: A8
-L1AC8:
+WaitFramesOrInput_Loop:
         JSR     TimerAndKeys                         ; &1AC8: 20 2C 0C
-        BNE     L1AD6                                ; &1ACB: D0 09
+        BNE     WaitFramesOrInput_Return                                ; &1ACB: D0 09
         JSR     WaitForTickChange                    ; &1ACD: 20 01 0D
         JSR     PollAttractInput                    ; &1AD0: 20 D7 1A
         DEY                                          ; &1AD3: 88
-        BNE     L1AC8                                ; &1AD4: D0 F2
-L1AD6:
+        BNE     WaitFramesOrInput_Loop                                ; &1AD4: D0 F2
+WaitFramesOrInput_Return:
         RTS                                          ; &1AD6: 60
-Code_PollAttractInput:
 PollAttractInput:
-        LDA     InputState                           ; &1AD7: A5 87
-        STA     ControlMode                            ; &1AD9: 85 86
-        LDA     #&9D                                 ; &1ADB: A9 9D
+        LDA     SelectedControlScheme                           ; &1AD7: A5 87
+        STA     ControlScheme                            ; &1AD9: 85 86
+        LDA     #KEY_START_SPACE                     ; &1ADB: A9 9D
         JSR     Inkey                                ; &1ADD: 20 9C 0D
-        BNE     L1AF4                                ; &1AE0: D0 12
-        LDA     #&01                                 ; &1AE2: A9 01
-        STA     ControlMode                            ; &1AE4: 85 86
-L1AE6:
+        BNE     PollAttractInput_StartGame                                ; &1AE0: D0 12
+        LDA     #CONTROL_JOYSTICK                                 ; &1AE2: A9 01
+        STA     ControlScheme                            ; &1AE4: 85 86
+PollAttractInput_TestScheme:
         JSR     ReadYoyoControl                             ; &1AE6: 20 59 13
-        BNE     L1AF0                                ; &1AE9: D0 05
-        DEC     ControlMode                            ; &1AEB: C6 86
-        BPL     L1AE6                                ; &1AED: 10 F7
+        BNE     PollAttractInput_SaveScheme                                ; &1AE9: D0 05
+        DEC     ControlScheme                            ; &1AEB: C6 86
+        BPL     PollAttractInput_TestScheme                                ; &1AED: 10 F7
         RTS                                          ; &1AEF: 60
-L1AF0:
-        LDA     ControlMode                            ; &1AF0: A5 86
-        STA     InputState                           ; &1AF2: 85 87
-L1AF4:
-        LDX     &7E                                  ; &1AF4: A6 7E
+PollAttractInput_SaveScheme:
+        LDA     ControlScheme                            ; &1AF0: A5 86
+        STA     SelectedControlScheme                           ; &1AF2: 85 87
+PollAttractInput_StartGame:
+        LDX     SavedAbortStackPtr                                  ; &1AF4: A6 7E
         TXS                                          ; &1AF6: 9A
         SEC                                          ; &1AF7: 38
         RTS                                          ; &1AF8: 60
 PrintPseudoRandomTitleChar:
-        STA     IndirectPtrLo                          ; &1AF9: 85 29
+        STA     TitleRandomScratch                     ; &1AF9: 85 29
         LSR     A                                    ; &1AFB: 4A
         LDA     HardwareStackPage,Y                              ; &1AFC: B9 00 01
         ADC     HardwareStackPage+1,Y                              ; &1AFF: 79 01 01
         SBC     HardwareStackPage+2,Y                              ; &1B02: F9 02 01
-        EOR     IndirectPtrLo                          ; &1B05: 45 29
-L1B07:
-        CMP     #&24                                 ; &1B07: C9 24
-        BCC     L1B0F                                ; &1B09: 90 04
-        SBC     #&24                                 ; &1B0B: E9 24
-        BCS     L1B07                                ; &1B0D: B0 F8
-L1B0F:
-        STY     IndirectPtrLo                          ; &1B0F: 84 29
+        EOR     TitleRandomScratch                     ; &1B05: 45 29
+PrintPseudoRandomTitleChar_ReduceIndex:
+        CMP     #TitleCharacterMapEnd-TitleCharacterMap                                 ; &1B07: C9 24
+        BCC     PrintPseudoRandomTitleChar_Emit                                ; &1B09: 90 04
+        SBC     #TitleCharacterMapEnd-TitleCharacterMap                                 ; &1B0B: E9 24
+        BCS     PrintPseudoRandomTitleChar_ReduceIndex                                ; &1B0D: B0 F8
+PrintPseudoRandomTitleChar_Emit:
+        STY     TitleRandomScratch                     ; &1B0F: 84 29
         TAY                                          ; &1B11: A8
         LDA     TitleCharacterMap,Y                              ; &1B12: B9 5A 1B
-        LDY     IndirectPtrLo                          ; &1B15: A4 29
+        LDY     TitleRandomScratch                     ; &1B15: A4 29
         INY                                          ; &1B17: C8
         JMP     OSWRCH                               ; &1B18: 4C EE FF
 TitleRandomSpriteTable:
-        EQUB &22,SPRITE_TROGG_FRAME0,SPRITE_SCRUBBLY,SPRITE_HOOTER
-Code_ShowScreenCompleteText:
+        EQUB SPRITE_FRAK_LOGO,SPRITE_TROGG_FRAME0,SPRITE_SCRUBBLY,SPRITE_HOOTER
 ShowScreenCompleteText:
         JSR     PrintInlineStream                    ; &1B1F: 20 21 0D
         EQUB &1C,&0B,&12,&1C,&0E,&19,&04,&5F,&01,&9F,&01,&19,&01,&41,&02,&00    ; runtime &1B22
@@ -3232,214 +3759,214 @@ TitleCharacterMap:
         EQUB &38,&34,&42,&51,&52,&4A,&46,&49,&5A,&4D,&41,&58,&47,&43,&53,&32    ; runtime &1B5A
         EQUB &36,&4E,&31,&4C,&45,&4F,&4B,&57,&37,&35,&33,&30,&48,&59,&50,&55    ; runtime &1B6A
         EQUB &54,&39,&56,&44    ; runtime &1B7A
+TitleCharacterMapEnd:
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1B7E: count objects of a requested sprite/type within one queue.
 ; -----------------------------------------------------------------------------
-Code_CountObjectsOfType:
 CountObjectsOfType:
-        STA     Scratch26                            ; &1B7E: 85 26
+        STA     RequestedObjectType                            ; &1B7E: 85 26
         LDX     #&00                                 ; &1B80: A2 00
-        STX     ObjectCount                                  ; &1B82: 86 60
+        STX     MatchedObjectCount                                  ; &1B82: 86 60
         LDX     QueueDescriptors,Y                   ; &1B84: BE 00 0B
-L1B87:
+CountObjectsOfType_Loop:
         LDA     ObjectSprite,X                       ; &1B87: BD 5E 04
-        CMP     Scratch26                            ; &1B8A: C5 26
-        BNE     L1B90                                ; &1B8C: D0 02
-        INC     ObjectCount                                  ; &1B8E: E6 60
-L1B90:
+        CMP     RequestedObjectType                            ; &1B8A: C5 26
+        BNE     CountObjectsOfType_Next                                ; &1B8C: D0 02
+        INC     MatchedObjectCount                                  ; &1B8E: E6 60
+CountObjectsOfType_Next:
         INX                                          ; &1B90: E8
         TXA                                          ; &1B91: 8A
-        CMP     QueueDescriptors+3,Y                              ; &1B92: D9 03 0B
-        BCC     L1B87                                ; &1B95: 90 F0
-        LDA     Scratch26                            ; &1B97: A5 26
-        LDX     ObjectCount                                  ; &1B99: A6 60
+        CMP     QueueDescriptors+QUEUE_DESC_END_SLOT,Y                              ; &1B92: D9 03 0B
+        BCC     CountObjectsOfType_Loop                                ; &1B95: 90 F0
+        LDA     RequestedObjectType                            ; &1B97: A5 26
+        LDX     MatchedObjectCount                                  ; &1B99: A6 60
         RTS                                          ; &1B9B: 60
-L1B9C:
+SpawnHazard_DiscardStackAndReturn:
         PLA                                          ; &1B9C: 68
         PLA                                          ; &1B9D: 68
         PLA                                          ; &1B9E: 68
         JMP     DynamicUpdateReturn                                ; &1B9F: 4C FA 1B
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: DYNAMIC HAZARDS
+; Updates existing balloons/daggers and creates a new one whenever HazardCounter
+; reaches zero. ObjectDX doubles as each new hazard's initial movement delay.
+;
 ; Runtime &1BA2: dagger/balloon hazard spawner.
 ; Existing balloon and dagger slots are updated every call.  When HazardCounter
-; expires, RandomBelowA(3) chooses a dagger on result 0 and a balloon on 1/2:
-; therefore roughly 1/3 daggers, 2/3 balloons.  Newly spawned objects use
+; expires, RandomUpToA(3) returns 0..3 inclusive. Result 0 selects a
+; dagger; results 1, 2 or 3 select a balloon: 25% daggers / 75% balloons.  Newly spawned objects use
 ; ObjectDX as an initial 20-tick delay before their first movement step.
 ; -----------------------------------------------------------------------------
-Code_SpawnHazard:
+; CONTRACT: update live balloons/daggers and periodically spawn one new hazard.
+; Spawn mix: RandomUpToA(3) => value 0 dagger, 1..3 balloon (25% / 75%).
+; New hazards receive DYNAMIC_SPAWN_DELAY before movement starts.
 SpawnHazard:
         LDY     #QUEUE_BALLOONS                                 ; &1BA2: A0 06
         JSR     UpdateDynamicQueue                                ; &1BA4: 20 FB 1B
         LDY     #QUEUE_DAGGERS                                 ; &1BA7: A0 03
         JSR     UpdateDynamicQueue                                ; &1BA9: 20 FB 1B
         DEC     HazardCounter                        ; &1BAC: C6 88
-        BNE     L1BFA                                ; &1BAE: D0 4A
+        BNE     UpdateDynamicQueue_Return                                ; &1BAE: D0 4A
         LDA     HazardReload                         ; &1BB0: A5 89
         STA     HazardCounter                        ; &1BB2: 85 88
-        LDA     #&03                                 ; &1BB4: A9 03
-        JSR     RandomBelowA                         ; &1BB6: 20 B6 0D
+        LDA     #HAZARD_RANDOM_MAX                                 ; &1BB4: A9 03
+        JSR     RandomUpToA                         ; &1BB6: 20 B6 0D
         TAY                                          ; &1BB9: A8
-        BEQ     L1BCE                                ; &1BBA: F0 12
-        LDA     #&08                                 ; &1BBC: A9 08
+        BEQ     SpawnHazard_CreateDagger                                ; &1BBA: F0 12
+        LDA     #BALLOON_SPAWN_Y                                 ; &1BBC: A9 08
         PHA                                          ; &1BBE: 48
         LDY     #QUEUE_BALLOONS                                 ; &1BBF: A0 06
-        LDA     #&50                                 ; &1BC1: A9 50
-        JSR     RandomBelowA                         ; &1BC3: 20 B6 0D
+        LDA     #BALLOON_SPAWN_X_SPAN                                 ; &1BC1: A9 50
+        JSR     RandomUpToA                         ; &1BC3: 20 B6 0D
         CLC                                          ; &1BC6: 18
         ADC     ViewportXOffset                                  ; &1BC7: 65 10
         PHA                                          ; &1BC9: 48
         LDA     #SPRITE_BALLOON                      ; &1BCA: A9 27
-        BNE     L1BE0                                ; &1BCC: D0 12
-L1BCE:
-        LDA     #&FA                                 ; &1BCE: A9 FA
+        BNE     SpawnHazard_AllocateSlot                                ; &1BCC: D0 12
+SpawnHazard_CreateDagger:
+        LDA     #DAGGER_SPAWN_Y                                 ; &1BCE: A9 FA
         PHA                                          ; &1BD0: 48
         LDY     #QUEUE_DAGGERS                                 ; &1BD1: A0 03
-        LDA     #&28                                 ; &1BD3: A9 28
-        JSR     RandomBelowA                         ; &1BD5: 20 B6 0D
+        LDA     #DAGGER_SPAWN_X_SPAN                                 ; &1BD3: A9 28
+        JSR     RandomUpToA                         ; &1BD5: 20 B6 0D
         CLC                                          ; &1BD8: 18
         ADC     ViewportXOffset                                  ; &1BD9: 65 10
-        ADC     #&32                                 ; &1BDB: 69 32
+        ADC     #DAGGER_SPAWN_X_OFFSET                                 ; &1BDB: 69 32
         PHA                                          ; &1BDD: 48
         LDA     #SPRITE_DAGGER                       ; &1BDE: A9 25
-L1BE0:
+SpawnHazard_AllocateSlot:
         PHA                                          ; &1BE0: 48
         JSR     FindFreeSlot                         ; &1BE1: 20 97 1C
-        BCS     L1B9C                                ; &1BE4: B0 B6
+        BCS     SpawnHazard_DiscardStackAndReturn                                ; &1BE4: B0 B6
         PLA                                          ; &1BE6: 68
         STA     ObjectSprite,X                       ; &1BE7: 9D 5E 04
         PLA                                          ; &1BEA: 68
         STA     ObjectX,X                            ; &1BEB: 9D 68 03
         PLA                                          ; &1BEE: 68
         STA     ObjectY,X                            ; &1BEF: 9D E3 03
-        LDA     #&14                                 ; &1BF2: A9 14
+        LDA     #DYNAMIC_SPAWN_DELAY                                 ; &1BF2: A9 14
         STA     ObjectDX,X                           ; &1BF4: 9D D9 04
-        JSR     ObjectMode00                         ; &1BF7: 20 20 0B
+        JSR     DrawObject                         ; &1BF7: 20 20 0B
 DynamicUpdateReturn:
-L1BFA:
+UpdateDynamicQueue_Return:
         RTS                                          ; &1BFA: 60
-Code_UpdateDynamicQueue:
+; CONTRACT: update every object slot belonging to one dynamic queue.
+; Entry: Y=queue descriptor offset.
+; Effect: snapshot -> type dispatch -> erase/collision -> restore -> redraw when state changed.
 UpdateDynamicQueue:
         STY     ActiveQueueDescriptor                                  ; &1BFB: 84 5B
         LDX     QueueDescriptors,Y                   ; &1BFD: BE 00 0B
-L1C00:
+UpdateDynamicQueue_Loop:
         JSR     UpdateDynamicObject                                ; &1C00: 20 0D 1C
         LDY     ActiveQueueDescriptor                                  ; &1C03: A4 5B
         INX                                          ; &1C05: E8
         TXA                                          ; &1C06: 8A
-        CMP     QueueDescriptors+3,Y                              ; &1C07: D9 03 0B
-        BCC     L1C00                                ; &1C0A: 90 F4
-L1C0C:
+        CMP     QueueDescriptors+QUEUE_DESC_END_SLOT,Y                              ; &1C07: D9 03 0B
+        BCC     UpdateDynamicQueue_Loop                                ; &1C0A: 90 F4
+UpdateDynamicQueue_QueueDone:
         RTS                                          ; &1C0C: 60
-Code_UpdateDynamicObject:
 UpdateDynamicObject:
         JSR     SnapshotObject                                ; &1C0D: 20 2F 1C
-        LDA     TempObjectSprite                                  ; &1C10: A5 68
-        CMP     #&FF                                 ; &1C12: C9 FF
-        BEQ     L1C0C                                ; &1C14: F0 F6
-        LDY     #&09                                 ; &1C16: A0 09
+        LDA     PendingObjectSprite                                  ; &1C10: A5 68
+        CMP     #OBJECT_EMPTY                                 ; &1C12: C9 FF
+        BEQ     UpdateDynamicQueue_QueueDone                                ; &1C14: F0 F6
+        LDY     #QUEUE_COLLECTIBLES                                 ; &1C16: A0 09
         JSR     TypeDispatch                         ; &1C18: 20 D1 12
         JSR     ObjectStateChanged                                ; &1C1B: 20 3F 1C
-        BEQ     L1C0C                                ; &1C1E: F0 EC
-        JSR     ObjectModeC0                         ; &1C20: 20 23 0B
+        BEQ     UpdateDynamicQueue_QueueDone                                ; &1C1E: F0 EC
+        JSR     EraseObjectAndScanCollisions                         ; &1C20: 20 23 0B
         JSR     RestoreObjectSnapshot                                ; &1C23: 20 53 1C
-        LDA     TempObjectSprite                                  ; &1C26: A5 68
-        CMP     #&FF                                 ; &1C28: C9 FF
-        BEQ     L1C0C                                ; &1C2A: F0 E0
-        JMP     ObjectMode00                         ; &1C2C: 4C 20 0B
-Code_SnapshotObject:
+        LDA     PendingObjectSprite                                  ; &1C26: A5 68
+        CMP     #OBJECT_EMPTY                                 ; &1C28: C9 FF
+        BEQ     UpdateDynamicQueue_QueueDone                                ; &1C2A: F0 E0
+        JMP     DrawObject                         ; &1C2C: 4C 20 0B
 SnapshotObject:
         LDA     ObjectSprite,X                       ; &1C2F: BD 5E 04
-        STA     TempObjectSprite                                  ; &1C32: 85 68
+        STA     PendingObjectSprite                                  ; &1C32: 85 68
         LDA     ObjectX,X                            ; &1C34: BD 68 03
-        STA     TempObjectX                                  ; &1C37: 85 69
+        STA     PendingObjectX                                  ; &1C37: 85 69
         LDA     ObjectY,X                            ; &1C39: BD E3 03
-        STA     TempObjectY                                  ; &1C3C: 85 6A
+        STA     PendingObjectY                                  ; &1C3C: 85 6A
         RTS                                          ; &1C3E: 60
-Code_ObjectStateChanged:
 ObjectStateChanged:
         LDA     ObjectSprite,X                       ; &1C3F: BD 5E 04
-        CMP     TempObjectSprite                                  ; &1C42: C5 68
-        BNE     L1C52                                ; &1C44: D0 0C
+        CMP     PendingObjectSprite                                  ; &1C42: C5 68
+        BNE     ObjectStateChanged_Return                                ; &1C44: D0 0C
         LDA     ObjectX,X                            ; &1C46: BD 68 03
-        CMP     TempObjectX                                  ; &1C49: C5 69
-        BNE     L1C52                                ; &1C4B: D0 05
+        CMP     PendingObjectX                                  ; &1C49: C5 69
+        BNE     ObjectStateChanged_Return                                ; &1C4B: D0 05
         LDA     ObjectY,X                            ; &1C4D: BD E3 03
-        CMP     TempObjectY                                  ; &1C50: C5 6A
-L1C52:
+        CMP     PendingObjectY                                  ; &1C50: C5 6A
+ObjectStateChanged_Return:
         RTS                                          ; &1C52: 60
-Code_RestoreObjectSnapshot:
 RestoreObjectSnapshot:
-        LDA     TempObjectSprite                                  ; &1C53: A5 68
+        LDA     PendingObjectSprite                                  ; &1C53: A5 68
         STA     ObjectSprite,X                       ; &1C55: 9D 5E 04
-        LDA     TempObjectX                                  ; &1C58: A5 69
+        LDA     PendingObjectX                                  ; &1C58: A5 69
         STA     ObjectX,X                            ; &1C5A: 9D 68 03
-        LDA     TempObjectY                                  ; &1C5D: A5 6A
+        LDA     PendingObjectY                                  ; &1C5D: A5 6A
         STA     ObjectY,X                            ; &1C5F: 9D E3 03
         RTS                                          ; &1C62: 60
-L1C63:
-        LDA     #&FF                                 ; &1C63: A9 FF
-        STA     TempObjectSprite                                  ; &1C65: 85 68
+DynamicObject_Remove:
+        LDA     #OBJECT_EMPTY                        ; &1C63: A9 FF
+        STA     PendingObjectSprite                                  ; &1C65: 85 68
         RTS                                          ; &1C67: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1C68: balloon movement.
 ; -----------------------------------------------------------------------------
-Code_BalloonMovement:
 BalloonMovement:
         JSR     TickObjectDelay                                ; &1C68: 20 8C 1C
-        BNE     L1C8B                                ; &1C6B: D0 1E
+        BNE     DynamicMovement_Return                                ; &1C6B: D0 1E
         CLC                                          ; &1C6D: 18
-        LDA     TempObjectY                                  ; &1C6E: A5 6A
-        ADC     #&06                                 ; &1C70: 69 06
-        STA     TempObjectY                                  ; &1C72: 85 6A
-        CMP     #&F0                                 ; &1C74: C9 F0
-        BCS     L1C63                                ; &1C76: B0 EB
+        LDA     PendingObjectY                                  ; &1C6E: A5 6A
+        ADC     #BALLOON_Y_STEP                                 ; &1C70: 69 06
+        STA     PendingObjectY                                  ; &1C72: 85 6A
+        CMP     #BALLOON_DESPAWN_Y                   ; &1C74: C9 F0
+        BCS     DynamicObject_Remove                                ; &1C76: B0 EB
         RTS                                          ; &1C78: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1C79: dagger movement.
 ; -----------------------------------------------------------------------------
-Code_DaggerMovement:
 DaggerMovement:
         JSR     TickObjectDelay                                ; &1C79: 20 8C 1C
-        BNE     L1C8B                                ; &1C7C: D0 0D
+        BNE     DynamicMovement_Return                                ; &1C7C: D0 0D
         SEC                                          ; &1C7E: 38
-        LDA     TempObjectY                                  ; &1C7F: A5 6A
-        SBC     #&02                                 ; &1C81: E9 02
-        STA     TempObjectY                                  ; &1C83: 85 6A
-        CMP     #&14                                 ; &1C85: C9 14
-        BCC     L1C63                                ; &1C87: 90 DA
-        DEC     TempObjectX                                  ; &1C89: C6 69
-L1C8B:
+        LDA     PendingObjectY                                  ; &1C7F: A5 6A
+        SBC     #DAGGER_Y_STEP                       ; &1C81: E9 02
+        STA     PendingObjectY                                  ; &1C83: 85 6A
+        CMP     #DAGGER_MIN_Y                                 ; &1C85: C9 14
+        BCC     DynamicObject_Remove                                ; &1C87: 90 DA
+        DEC     PendingObjectX                                  ; &1C89: C6 69
+DynamicMovement_Return:
         RTS                                          ; &1C8B: 60
-Code_TickObjectDelay:
 TickObjectDelay:
         LDY     ObjectDX,X                           ; &1C8C: BC D9 04
-        BEQ     L1C96                                ; &1C8F: F0 05
+        BEQ     TickObjectDelay_Return                                ; &1C8F: F0 05
         DEY                                          ; &1C91: 88
         TYA                                          ; &1C92: 98
         STA     ObjectDX,X                           ; &1C93: 9D D9 04
-L1C96:
+TickObjectDelay_Return:
         RTS                                          ; &1C96: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1C97: find free object slot.
 ; -----------------------------------------------------------------------------
-Code_FindFreeSlot:
 FindFreeSlot:
         LDX     QueueDescriptors,Y                   ; &1C97: BE 00 0B
-L1C9A:
+FindFreeSlot_Loop:
         LDA     ObjectSprite,X                       ; &1C9A: BD 5E 04
-        CMP     #&FF                                 ; &1C9D: C9 FF
-        BEQ     L1CA9                                ; &1C9F: F0 08
+        CMP     #OBJECT_EMPTY                        ; &1C9D: C9 FF
+        BEQ     FindFreeSlot_Found                                ; &1C9F: F0 08
         INX                                          ; &1CA1: E8
         TXA                                          ; &1CA2: 8A
-        CMP     QueueDescriptors+3,Y                              ; &1CA3: D9 03 0B
-        BCC     L1C9A                                ; &1CA6: 90 F2
+        CMP     QueueDescriptors+QUEUE_DESC_END_SLOT,Y                              ; &1CA3: D9 03 0B
+        BCC     FindFreeSlot_Loop                                ; &1CA6: 90 F2
         RTS                                          ; &1CA8: 60
-L1CA9:
+FindFreeSlot_Found:
         CLC                                          ; &1CA9: 18
         RTS                                          ; &1CAA: 60
 ; SpriteTraversal selects one of three primitive handlers by pushing a synthetic
@@ -3449,42 +3976,43 @@ SpriteTraversalReturnTable:
         EQUW AccumulateSpriteBounds-1
         EQUW TestPrimitiveBounds-1
         EQUW RenderSpritePrimitive-1
-Code_TestSpriteCollision:
 TestSpriteCollision:
-        LDA     &50                                  ; &1CB1: A5 50
+        LDA     SpriteTraversalMode                                  ; &1CB1: A5 50
         PHA                                          ; &1CB3: 48
-        LDA     #&02                                 ; &1CB4: A9 02
+        LDA     #SPRITE_TRAVERSE_COLLISION           ; &1CB4: A9 02
         JSR     SpriteTraversal                      ; &1CB6: 20 2E 1D
         PLA                                          ; &1CB9: 68
-        STA     &50                                  ; &1CBA: 85 50
+        STA     SpriteTraversalMode                                  ; &1CBA: 85 50
         RTS                                          ; &1CBC: 60
-Code_ScanObjectCollisions:
 ScanObjectCollisions:
         STA     CollisionMask                                  ; &1CBD: 85 5A
-        STX     SavedObjectIndex                     ; &1CBF: 86 33
+        STX     CollisionSourceObjectSlot                     ; &1CBF: 86 33
         JSR     LoadObject                           ; &1CC1: 20 3C 0B
         JSR     ResetSpriteBounds                                ; &1CC4: 20 19 1D
-        LDA     #&00                                 ; &1CC7: A9 00
+        LDA     #SPRITE_TRAVERSE_BOUNDS              ; &1CC7: A9 00
         JSR     SpriteTraversal                      ; &1CC9: 20 2E 1D
         JMP     CollisionScanPrepared                 ; &1CCC: 4C 7C 14
 
 ; -----------------------------------------------------------------------------
+; SUBSYSTEM: SPRITE / COLLISION RENDERER
+; ProcessSprite and SpriteTraversal share one recursive descriptor walker for
+; bounds, collision and rendering. Rendering patches the eight calls in &01C4.
+;
 ; Runtime &1CCF: traverse/render/collide one sprite according to the mode in A.
 ; -----------------------------------------------------------------------------
-Code_ProcessSprite:
 ProcessSprite:
         STA     SpriteOperationMode                                  ; &1CCF: 85 5E
         TYA                                          ; &1CD1: 98
         PHA                                          ; &1CD2: 48
         JSR     ResetSpriteBounds                                ; &1CD3: 20 19 1D
-        LDA     #&04                                 ; &1CD6: A9 04
+        LDA     #SPRITE_TRAVERSE_RENDER              ; &1CD6: A9 04
         JSR     SpriteTraversal                      ; &1CD8: 20 2E 1D
         PLA                                          ; &1CDB: 68
         TAY                                          ; &1CDC: A8
         BIT     SpriteOperationMode                                  ; &1CDD: 24 5E
-        BVC     L1D18                                ; &1CDF: 50 37
-        LDA     PrimitiveBoundsBytes                                  ; &1CE1: A5 6F
-        BEQ     L1D18                                ; &1CE3: F0 33
+        BVC     ProcessSprite_Return                                ; &1CDF: 50 37
+        LDA     PrimitiveBoundsByteCount                                  ; &1CE1: A5 6F
+        BEQ     ProcessSprite_Return                                ; &1CE3: F0 33
         LDA     #&FF                                 ; &1CE5: A9 FF
         STA     SpriteCollisionDrawFlag                                  ; &1CE7: 85 5F
         STA     CollisionMask                                  ; &1CE9: 85 5A
@@ -3494,30 +4022,29 @@ ProcessSprite:
         LDA     SpriteBoundsMinX                                  ; &1CEF: A5 75
         SBC     ViewportXOffset                                  ; &1CF1: E5 10
         CMP     ClipLeft                                  ; &1CF3: C5 0E
-        BMI     L1CFD                                ; &1CF5: 30 06
+        BMI     ProcessSprite_ClipLeftReady                                ; &1CF5: 30 06
         CMP     ClipRight                                  ; &1CF7: C5 0F
-        BPL     L1CFD                                ; &1CF9: 10 02
+        BPL     ProcessSprite_ClipLeftReady                                ; &1CF9: 10 02
         STA     ClipLeft                                  ; &1CFB: 85 0E
-L1CFD:
+ProcessSprite_ClipLeftReady:
         LDA     ClipRight                                  ; &1CFD: A5 0F
         PHA                                          ; &1CFF: 48
         SEC                                          ; &1D00: 38
         LDA     SpriteBoundsMaxX                                  ; &1D01: A5 76
         SBC     ViewportXOffset                                  ; &1D03: E5 10
         CMP     ClipRight                                  ; &1D05: C5 0F
-        BPL     L1D0F                                ; &1D07: 10 06
+        BPL     ProcessSprite_TestCollision                                ; &1D07: 10 06
         CMP     ClipLeft                                  ; &1D09: C5 0E
-        BMI     L1D0F                                ; &1D0B: 30 02
+        BMI     ProcessSprite_TestCollision                                ; &1D0B: 30 02
         STA     ClipRight                                  ; &1D0D: 85 0F
-L1D0F:
+ProcessSprite_TestCollision:
         JSR     CollisionScanPrepared                 ; &1D0F: 20 7C 14
         PLA                                          ; &1D12: 68
         STA     ClipRight                                  ; &1D13: 85 0F
         PLA                                          ; &1D15: 68
         STA     ClipLeft                                  ; &1D16: 85 0E
-L1D18:
+ProcessSprite_Return:
         RTS                                          ; &1D18: 60
-Code_ResetSpriteBounds:
 ResetSpriteBounds:
         CLC                                          ; &1D19: 18
         LDA     ViewportXOffset                                  ; &1D1A: A5 10
@@ -3528,29 +4055,32 @@ ResetSpriteBounds:
         ADC     ClipLeft                                  ; &1D23: 65 0E
         STA     SpriteBoundsMaxX                                  ; &1D25: 85 76
         LDA     #&00                                 ; &1D27: A9 00
-        STA     PrimitiveBoundsBytes                                  ; &1D29: 85 6F
+        STA     PrimitiveBoundsByteCount                                  ; &1D29: 85 6F
         STA     SpriteCollisionDrawFlag                                  ; &1D2B: 85 5F
         RTS                                          ; &1D2D: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1D2E: recursive sprite traversal.
 ; -----------------------------------------------------------------------------
-Code_SpriteTraversal:
+; CONTRACT: recursive primitive/composite sprite walker.
+; Entry: A=SPRITE_TRAVERSE_* mode, Y=sprite index, CurrentSpriteX/Y origin.
+; Effect: recursively visits composite children or RTS-dispatches primitive handler.
+; Carry is propagated to permit collision traversal to abort early.
 SpriteTraversal:
         STA     SpriteTraversalMode                  ; &1D2E: 85 50
 SpriteTraversalNode:
         LDA     (SpriteWidthPtrLo),Y                              ; &1D30: B1 08
         ASL     A                                    ; &1D32: 0A
-        BEQ     L1D44                                ; &1D33: F0 0F
-        STY     Scratch26                            ; &1D35: 84 26
+        BEQ     SpriteTraversal_Composite                                ; &1D33: F0 0F
+        STY     SavedSpriteIndex                            ; &1D35: 84 26
         LDY     SpriteTraversalMode                  ; &1D37: A4 50
         LDA     SpriteTraversalReturnTable+1,Y       ; &1D39: B9 AC 1C
         PHA                                          ; &1D3C: 48
         LDA     SpriteTraversalReturnTable,Y         ; &1D3D: B9 AB 1C
         PHA                                          ; &1D40: 48
-        LDY     Scratch26                            ; &1D41: A4 26
+        LDY     SavedSpriteIndex                            ; &1D41: A4 26
         RTS                                          ; &1D43: 60
-L1D44:
+SpriteTraversal_Composite:
         LDA     SpriteTraversalCount                 ; &1D44: A5 1E
         PHA                                          ; &1D46: 48
         LDA     SpriteTraversalPtrLo                 ; &1D47: A5 1F
@@ -3566,8 +4096,8 @@ L1D44:
         LDA     SpriteXOffsetPtrHi                                  ; &1D58: A5 01
         ADC     (SpriteDefHiPtrLo),Y                              ; &1D5A: 71 06
         STA     SpriteTraversalPtrHi                 ; &1D5C: 85 20
-L1D5E:
-        LDY     #&02                                 ; &1D5E: A0 02
+SpriteTraversal_NextChild:
+        LDY     #COMPOSITE_CHILD_Y_OFFSET            ; &1D5E: A0 02
         LDA     CurrentSpriteY                       ; &1D60: A5 12
         PHA                                          ; &1D62: 48
         CLC                                          ; &1D63: 18
@@ -3587,17 +4117,17 @@ L1D5E:
         STA     CurrentSpriteX                       ; &1D79: 85 11
         PLA                                          ; &1D7B: 68
         STA     CurrentSpriteY                       ; &1D7C: 85 12
-        BCS     L1D8F                                ; &1D7E: B0 0F
+        BCS     SpriteTraversal_RestoreParent                                ; &1D7E: B0 0F
         LDA     SpriteTraversalPtrLo                 ; &1D80: A5 1F
-        ADC     #&03                                 ; &1D82: 69 03
+        ADC     #COMPOSITE_CHILD_RECORD_SIZE         ; &1D82: 69 03
         STA     SpriteTraversalPtrLo                 ; &1D84: 85 1F
-        BCC     L1D8A                                ; &1D86: 90 02
+        BCC     SpriteTraversal_DecrementChild                                ; &1D86: 90 02
         INC     SpriteTraversalPtrHi                 ; &1D88: E6 20
-L1D8A:
+SpriteTraversal_DecrementChild:
         DEC     SpriteTraversalCount                 ; &1D8A: C6 1E
-        BNE     L1D5E                                ; &1D8C: D0 D0
+        BNE     SpriteTraversal_NextChild                                ; &1D8C: D0 D0
         CLC                                          ; &1D8E: 18
-L1D8F:
+SpriteTraversal_RestoreParent:
         PLA                                          ; &1D8F: 68
         STA     SpriteTraversalPtrHi                 ; &1D90: 85 20
         PLA                                          ; &1D92: 68
@@ -3605,116 +4135,116 @@ L1D8F:
         PLA                                          ; &1D95: 68
         STA     SpriteTraversalCount                 ; &1D96: 85 1E
         RTS                                          ; &1D98: 60
-Code_AccumulateSpriteBounds:
 AccumulateSpriteBounds:
         JSR     ComputePrimitiveBounds                                ; &1D99: 20 92 15
         TYA                                          ; &1D9C: 98
         PHA                                          ; &1D9D: 48
-        LDY     PrimitiveBoundsBytes                                  ; &1D9E: A4 6F
+        LDY     PrimitiveBoundsByteCount                                  ; &1D9E: A4 6F
         LDA     CollisionLeft                                  ; &1DA0: A5 45
         STA     HardwareStackPage,Y                              ; &1DA2: 99 00 01
         CMP     SpriteBoundsMinX                                  ; &1DA5: C5 75
-        BPL     L1DAB                                ; &1DA7: 10 02
+        BPL     AccumulateBounds_UpdateRight                                ; &1DA7: 10 02
         STA     SpriteBoundsMinX                                  ; &1DA9: 85 75
-L1DAB:
+AccumulateBounds_UpdateRight:
         LDA     CollisionRight                                  ; &1DAB: A5 46
         STA     HardwareStackPage+1,Y                              ; &1DAD: 99 01 01
         CMP     SpriteBoundsMaxX                                  ; &1DB0: C5 76
-        BMI     L1DB6                                ; &1DB2: 30 02
+        BMI     AccumulateBounds_StoreVertical                                ; &1DB2: 30 02
         STA     SpriteBoundsMaxX                                  ; &1DB4: 85 76
-L1DB6:
+AccumulateBounds_StoreVertical:
         LDA     CollisionBottom                                  ; &1DB6: A5 48
         STA     HardwareStackPage+2,Y                              ; &1DB8: 99 02 01
         LDA     CollisionTop                                  ; &1DBB: A5 47
         STA     HardwareStackPage+3,Y                              ; &1DBD: 99 03 01
         CLC                                          ; &1DC0: 18
         TYA                                          ; &1DC1: 98
-        ADC     #&04                                 ; &1DC2: 69 04
-        STA     PrimitiveBoundsBytes                                  ; &1DC4: 85 6F
+        ADC     #PRIMITIVE_BOUNDS_RECORD_SIZE       ; &1DC2: 69 04
+        STA     PrimitiveBoundsByteCount                                  ; &1DC4: 85 6F
         PLA                                          ; &1DC6: 68
         TAY                                          ; &1DC7: A8
         CLC                                          ; &1DC8: 18
         RTS                                          ; &1DC9: 60
-Code_TestPrimitiveBounds:
 TestPrimitiveBounds:
         TXA                                          ; &1DCA: 8A
         PHA                                          ; &1DCB: 48
         LDX     #&00                                 ; &1DCC: A2 00
 TestPrimitiveBounds_NextRecord:
-        CPX     PrimitiveBoundsBytes                                  ; &1DCE: E4 6F
-        BCS     L1E0F                                ; &1DD0: B0 3D
+        CPX     PrimitiveBoundsByteCount                                  ; &1DCE: E4 6F
+        BCS     TestBounds_NoCollisionRestore                                ; &1DD0: B0 3D
         LDA     CurrentSpriteX                       ; &1DD2: A5 11
         ADC     (SpriteXOffsetPtrLo),Y                              ; &1DD4: 71 00
         CMP     HardwareStackPage+1,X                              ; &1DD6: DD 01 01
-        BPL     L1E17                                ; &1DD9: 10 3C
-        STA     Scratch26                            ; &1DDB: 85 26
+        BPL     TestBounds_NextRecord                                ; &1DD9: 10 3C
+        STA     PrimitiveLeftScratch                            ; &1DDB: 85 26
         LDA     (SpriteWidthPtrLo),Y                              ; &1DDD: B1 08
         ASL     A                                    ; &1DDF: 0A
         LSR     A                                    ; &1DE0: 4A
-        ADC     Scratch26                            ; &1DE1: 65 26
+        ADC     PrimitiveLeftScratch                            ; &1DE1: 65 26
         CMP     HardwareStackPage,X                              ; &1DE3: DD 00 01
-        BEQ     L1E17                                ; &1DE6: F0 2F
-        BMI     L1E17                                ; &1DE8: 30 2D
+        BEQ     TestBounds_NextRecord                                ; &1DE6: F0 2F
+        BMI     TestBounds_NextRecord                                ; &1DE8: 30 2D
         CLC                                          ; &1DEA: 18
         LDA     CurrentSpriteY                       ; &1DEB: A5 12
         ADC     (SpriteYOffsetPtrLo),Y                              ; &1DED: 71 02
         CMP     HardwareStackPage+3,X                              ; &1DEF: DD 03 01
-        BPL     L1E17                                ; &1DF2: 10 23
+        BPL     TestBounds_NextRecord                                ; &1DF2: 10 23
         CLC                                          ; &1DF4: 18
         ADC     (SpriteHeightPtrLo),Y                              ; &1DF5: 71 0A
         CMP     HardwareStackPage+2,X                              ; &1DF7: DD 02 01
-        BEQ     L1E17                                ; &1DFA: F0 1B
-        BMI     L1E17                                ; &1DFC: 30 19
+        BEQ     TestBounds_NextRecord                                ; &1DFA: F0 1B
+        BMI     TestBounds_NextRecord                                ; &1DFC: 30 19
         BIT     SpriteCollisionDrawFlag                                  ; &1DFE: 24 5F
-        BPL     L1E13                                ; &1E00: 10 11
+        BPL     TestBounds_CollisionReturn                                ; &1E00: 10 11
         LDA     SpriteOperationMode                                  ; &1E02: A5 5E
         PHA                                          ; &1E04: 48
-        LDA     #&00                                 ; &1E05: A9 00
+        LDA     #OBJECT_RENDER_DRAW                  ; &1E05: A9 00
         STA     SpriteOperationMode                                  ; &1E07: 85 5E
         JSR     DirectSpriteRenderer                 ; &1E09: 20 36 1E
         PLA                                          ; &1E0C: 68
         STA     SpriteOperationMode                                  ; &1E0D: 85 5E
-L1E0F:
+TestBounds_NoCollisionRestore:
         PLA                                          ; &1E0F: 68
         TAX                                          ; &1E10: AA
-L1E11:
+TestBounds_NoCollisionReturn:
         CLC                                          ; &1E11: 18
         RTS                                          ; &1E12: 60
-L1E13:
+TestBounds_CollisionReturn:
         PLA                                          ; &1E13: 68
         TAX                                          ; &1E14: AA
         SEC                                          ; &1E15: 38
         RTS                                          ; &1E16: 60
-L1E17:
+TestBounds_NextRecord:
         INX                                          ; &1E17: E8
         INX                                          ; &1E18: E8
         INX                                          ; &1E19: E8
         INX                                          ; &1E1A: E8
         JMP     TestPrimitiveBounds_NextRecord        ; &1E1B: 4C CE 1D
-Code_RenderSpritePrimitive:
 RenderSpritePrimitive:
         LDA     SpriteOperationMode                                  ; &1E1E: A5 5E
-        BEQ     L1E24                                ; &1E20: F0 02
-        BPL     L1E31                                ; &1E22: 10 0D
-L1E24:
+        BEQ     RenderPrimitive_Draw                                ; &1E20: F0 02
+        BPL     RenderPrimitive_AccumulateBounds                                ; &1E22: 10 0D
+RenderPrimitive_Draw:
         TYA                                          ; &1E24: 98
         PHA                                          ; &1E25: 48
         JSR     DirectSpriteRenderer                 ; &1E26: 20 36 1E
         PLA                                          ; &1E29: 68
         TAY                                          ; &1E2A: A8
-        BCS     L1E11                                ; &1E2B: B0 E4
+        BCS     TestBounds_NoCollisionReturn                                ; &1E2B: B0 E4
         BIT     SpriteOperationMode                                  ; &1E2D: 24 5E
-        BVC     L1E11                                ; &1E2F: 50 E0
-L1E31:
-        JMP     Code_AccumulateSpriteBounds           ; &1E31: 4C 99 1D
-L1E34:
+        BVC     TestBounds_NoCollisionReturn                                ; &1E2F: 50 E0
+RenderPrimitive_AccumulateBounds:
+        JMP     AccumulateSpriteBounds           ; &1E31: 4C 99 1D
+DirectRenderer_ClippedReturn:
         SEC                                          ; &1E34: 38
         RTS                                          ; &1E35: 60
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1E36: direct sprite renderer.
 ; -----------------------------------------------------------------------------
-Code_DirectSpriteRenderer:
+; CONTRACT: render one primitive sprite descriptor.
+; Entry: Y=sprite index; CurrentSpriteX/Y and clipping state valid.
+; Effect: derives bitmap/solid primitive parameters then calls SpriteRenderSetup.
+; Return: carry set when primitive is entirely clipped.
 DirectSpriteRenderer:
         SEC                                          ; &1E36: 38
         LDA     CurrentSpriteX                       ; &1E37: A5 11
@@ -3722,7 +4252,7 @@ DirectSpriteRenderer:
         CLC                                          ; &1E3B: 18
         ADC     (SpriteXOffsetPtrLo),Y                              ; &1E3C: 71 00
         CMP     ClipRight                                  ; &1E3E: C5 0F
-        BPL     L1E34                                ; &1E40: 10 F2
+        BPL     DirectRenderer_ClippedReturn                                ; &1E40: 10 F2
         STA     RendererX                            ; &1E42: 85 21
         LDA     (SpriteWidthPtrLo),Y                              ; &1E44: B1 08
         ASL     A                                    ; &1E46: 0A
@@ -3730,56 +4260,57 @@ DirectSpriteRenderer:
         STA     RendererWidth                             ; &1E48: 85 17
         ADC     RendererX                            ; &1E4A: 65 21
         CMP     ClipLeft                                  ; &1E4C: C5 0E
-        BMI     L1E34                                ; &1E4E: 30 E4
+        BMI     DirectRenderer_ClippedReturn                                ; &1E4E: 30 E4
         CLC                                          ; &1E50: 18
         LDA     CurrentSpriteY                       ; &1E51: A5 12
         ADC     (SpriteYOffsetPtrLo),Y                              ; &1E53: 71 02
         STA     RendererY                                  ; &1E55: 85 22
         LDA     (SpriteHeightPtrLo),Y                              ; &1E57: B1 0A
         STA     RendererHeight                                  ; &1E59: 85 18
-        BIT     Orientation                          ; &1E5B: 24 74
-        BPL     L1E66                                ; &1E5D: 10 07
+        BIT     VerticalFlipFlag                          ; &1E5B: 24 74
+        BPL     DirectRenderer_SetDataPointer                                ; &1E5D: 10 07
         CLC                                          ; &1E5F: 18
         ADC     RendererY                                  ; &1E60: 65 22
-        EOR     Orientation                          ; &1E62: 45 74
+        EOR     VerticalFlipFlag                          ; &1E62: 45 74
         STA     RendererY                                  ; &1E64: 85 22
-L1E66:
+DirectRenderer_SetDataPointer:
         CLC                                          ; &1E66: 18
         LDA     (SpriteDefLoPtrLo),Y                              ; &1E67: B1 04
         ADC     SpriteXOffsetPtrLo                                  ; &1E69: 65 00
         STA     RendererDataPtrLo                                  ; &1E6B: 85 13
         LDA     (SpriteDefHiPtrLo),Y                              ; &1E6D: B1 06
-        BMI     L1E84                                ; &1E6F: 30 13
+        BMI     DirectRenderer_SolidPrimitive                                ; &1E6F: 30 13
         ADC     SpriteXOffsetPtrHi                                  ; &1E71: 65 01
         STA     RendererDataPtrHi                                  ; &1E73: 85 14
-        LDA     Orientation                          ; &1E75: A5 74
-        AND     #&02                                 ; &1E77: 29 02
+        LDA     VerticalFlipFlag                          ; &1E75: A5 74
+        AND     #PIXEL_OP_MASKED_REVERSE             ; &1E77: 29 02
         TAX                                          ; &1E79: AA
         LDA     (SpriteWidthPtrLo),Y                              ; &1E7A: B1 08
-        BPL     L1E8A                                ; &1E7C: 10 0C
+        BPL     DirectRenderer_SetPixelOp                                ; &1E7C: 10 0C
         TXA                                          ; &1E7E: 8A
-        EOR     #&02                                 ; &1E7F: 49 02
+        EOR     #PIXEL_OP_MASKED_REVERSE             ; &1E7F: 49 02
         TAX                                          ; &1E81: AA
-        BPL     L1E8A                                ; &1E82: 10 06
-L1E84:
+        BPL     DirectRenderer_SetPixelOp                                ; &1E82: 10 06
+DirectRenderer_SolidPrimitive:
         LDA     (SpriteDefLoPtrLo),Y                              ; &1E84: B1 04
         STA     RendererSolidByte                                  ; &1E86: 85 59
-        LDX     #&04                                 ; &1E88: A2 04
-L1E8A:
+        LDX     #PIXEL_OP_SOLID                      ; &1E88: A2 04
+DirectRenderer_SetPixelOp:
         STX     PixelOpIndex                                  ; &1E8A: 86 1B
 
 ; -----------------------------------------------------------------------------
 ; Runtime &1E8C: sprite render setup.
 ; -----------------------------------------------------------------------------
-Code_SpriteRenderSetup:
+; CONTRACT: configure and run the eight-call self-modifying MODE 1 row renderer.
+; Effect: selects draw/erase pixel operator, patches RendererRowCall0..7, then renders columns.
 SpriteRenderSetup:
         JSR     Mode1Address                         ; &1E8C: 20 A9 1F
         LDA     PixelOpIndex                                  ; &1E8F: A5 1B
         BIT     SpriteOperationMode                                  ; &1E91: 24 5E
-        BPL     L1E98                                ; &1E93: 10 03
+        BPL     SpriteRenderSetup_SelectOperator                                ; &1E93: 10 03
         CLC                                          ; &1E95: 18
-        ADC     #&06                                 ; &1E96: 69 06
-L1E98:
+        ADC     #PIXEL_OP_ERASE_TABLE_OFFSET         ; &1E96: 69 06
+SpriteRenderSetup_SelectOperator:
         TAX                                          ; &1E98: AA
         LDA     PixelOperationTable,X                 ; &1E99: BD 9D 1F
         STA     RendererRowCall0+1                                ; &1E9C: 8D C5 01
@@ -3800,7 +4331,7 @@ L1E98:
         STA     RendererRowCall6+2                                ; &1EC9: 8D D8 01
         STA     RendererRowCall7+2                                ; &1ECC: 8D DB 01
         LDA     RendererY                                  ; &1ECF: A5 22
-        AND     #&07                                 ; &1ED1: 29 07
+        AND     #MODE1_SCANLINES_PER_CHAR-1          ; &1ED1: 29 07
         ASL     A                                    ; &1ED3: 0A
         TAX                                          ; &1ED4: AA
         LDA     RendererRowEntryTable,X               ; &1ED5: BD 31 1F
@@ -3808,32 +4339,32 @@ L1E98:
         LDA     RendererRowEntryTable+1,X             ; &1EDA: BD 32 1F
         STA     RowRoutineHi                          ; &1EDD: 85 1D
         LDA     RendererDataPtrLo                                  ; &1EDF: A5 13
-        BNE     L1EE5                                ; &1EE1: D0 02
+        BNE     SpriteRenderSetup_DataPtrReady                                ; &1EE1: D0 02
         DEC     RendererDataPtrHi                                  ; &1EE3: C6 14
-L1EE5:
+SpriteRenderSetup_DataPtrReady:
         DEC     RendererDataPtrLo                                  ; &1EE5: C6 13
         LDX     #&00                                 ; &1EE7: A2 00
-L1EE9:
+SpriteRenderSetup_ColumnLoop:
         LDY     RendererHeight                                  ; &1EE9: A4 18
         LDA     RendererX                            ; &1EEB: A5 21
         CMP     ClipLeft                                  ; &1EED: C5 0E
-        BMI     L1EF8                                ; &1EEF: 30 07
+        BMI     SpriteRenderSetup_NextColumn                                ; &1EEF: 30 07
         CMP     ClipRight                                  ; &1EF1: C5 0F
-        BPL     L1F2C                                ; &1EF3: 10 37
+        BPL     SpriteRenderSetup_Return                                ; &1EF3: 10 37
         JSR     RendererRowDispatch                 ; &1EF5: 20 2E 1F
-L1EF8:
+SpriteRenderSetup_NextColumn:
         DEC     RendererWidth                             ; &1EF8: C6 17
-        BEQ     L1F2C                                ; &1EFA: F0 30
+        BEQ     SpriteRenderSetup_Return                                ; &1EFA: F0 30
         INC     RendererX                            ; &1EFC: E6 21
         CLC                                          ; &1EFE: 18
         TYA                                          ; &1EFF: 98
         ADC     RendererDataPtrLo                                  ; &1F00: 65 13
         STA     RendererDataPtrLo                                  ; &1F02: 85 13
-        BCC     L1F08                                ; &1F04: 90 02
+        BCC     SpriteRenderSetup_AdvanceScreenColumn                                ; &1F04: 90 02
         INC     RendererDataPtrHi                                  ; &1F06: E6 14
-L1F08:
+SpriteRenderSetup_AdvanceScreenColumn:
         CLC                                          ; &1F08: 18
-        LDA     #&08                                 ; &1F09: A9 08
+        LDA     #MODE1_SCANLINES_PER_CHAR            ; &1F09: A9 08
         ADC     RendererScreenBaseLo                                  ; &1F0B: 65 15
         STA     RendererScreenBaseLo                                  ; &1F0D: 85 15
         STA     ScreenPtrLo                                  ; &1F0F: 85 19
@@ -3845,17 +4376,16 @@ L1F08:
         ADC     ScreenPtrLo                                  ; &1F1A: 65 19
         TXA                                          ; &1F1C: 8A
         ADC     ScreenPtrHi                                  ; &1F1D: 65 1A
-        BPL     L1EE9                                ; &1F1F: 10 C8
+        BPL     SpriteRenderSetup_ColumnLoop                                ; &1F1F: 10 C8
         SEC                                          ; &1F21: 38
         LDA     ScreenPtrHi                                  ; &1F22: A5 1A
-        SBC     #&50                                 ; &1F24: E9 50
+        SBC     #MODE1_SCREEN_RING_SIZE_HI           ; &1F24: E9 50
         STA     ScreenPtrHi                                  ; &1F26: 85 1A
         STA     Mode1XHigh                             ; &1F28: 85 16
-        BPL     L1EE9                                ; &1F2A: 10 BD
-L1F2C:
+        BPL     SpriteRenderSetup_ColumnLoop                                ; &1F2A: 10 BD
+SpriteRenderSetup_Return:
         CLC                                          ; &1F2C: 18
         RTS                                          ; &1F2D: 60
-Code_RendererRowDispatch:
 RendererRowDispatch:
         JMP     (RowRoutineLo)                      ; &1F2E: 6C 1C 00
 
@@ -3871,7 +4401,6 @@ RendererRowEntryTable:
         EQUW RendererRowCall6
         EQUW RendererRowCall7
 
-Code_PixelOpMaskedForward:
 PixelOpMaskedForward:
         LDA     (RendererDataPtrLo),Y                              ; &1F41: B1 13
         STA     MaskLookupPtrLo                    ; &1F43: 85 80
@@ -3880,13 +4409,12 @@ PixelOpMaskedForward:
         ORA     MaskLookupPtrLo                    ; &1F49: 05 80
         STA     (ScreenPtrLo),Y                              ; &1F4B: 91 19
         DEY                                          ; &1F4D: 88
-        BEQ     L1F65                                ; &1F4E: F0 15
+        BEQ     PixelOp_EndRowReloadHeight                                ; &1F4E: F0 15
         RTS                                          ; &1F50: 60
-Code_PixelOpMaskedReverse:
 PixelOpMaskedReverse:
         INC     RendererDataPtrLo                                  ; &1F51: E6 13
-        BEQ     L1F6A                                ; &1F53: F0 15
-L1F55:
+        BEQ     PixelMaskedReverse_CarryPage                                ; &1F53: F0 15
+PixelMaskedReverse_Loop:
         LDA     (RendererDataPtrLo,X)                              ; &1F55: A1 13
         STA     MaskLookupPtrLo                    ; &1F57: 85 80
         LDA     (MaskLookupPtrLo,X)                ; &1F59: A1 80
@@ -3894,55 +4422,51 @@ L1F55:
         ORA     MaskLookupPtrLo                    ; &1F5D: 05 80
         STA     (ScreenPtrLo),Y                              ; &1F5F: 91 19
         DEY                                          ; &1F61: 88
-        BEQ     L1F67                                ; &1F62: F0 03
+        BEQ     PixelOp_EndColumnUnwind                                ; &1F62: F0 03
         RTS                                          ; &1F64: 60
-L1F65:
+PixelOp_EndRowReloadHeight:
         LDY     RendererHeight                                  ; &1F65: A4 18
-L1F67:
+PixelOp_EndColumnUnwind:
         PLA                                          ; &1F67: 68
         PLA                                          ; &1F68: 68
         RTS                                          ; &1F69: 60
-L1F6A:
+PixelMaskedReverse_CarryPage:
         INC     RendererDataPtrHi                                  ; &1F6A: E6 14
-        BNE     L1F55                                ; &1F6C: D0 E7
-Code_PixelOpSolid:
+        BNE     PixelMaskedReverse_Loop                                ; &1F6C: D0 E7
 PixelOpSolid:
         LDA     RendererSolidByte                                  ; &1F6E: A5 59
         STA     (ScreenPtrLo),Y                              ; &1F70: 91 19
         DEY                                          ; &1F72: 88
-        BEQ     L1F67                                ; &1F73: F0 F2
+        BEQ     PixelOp_EndColumnUnwind                                ; &1F73: F0 F2
         RTS                                          ; &1F75: 60
-Code_PixelOpEraseForward:
 PixelOpEraseForward:
         LDA     (RendererDataPtrLo),Y                              ; &1F76: B1 13
         EOR     #&FF                                 ; &1F78: 49 FF
         AND     (ScreenPtrLo),Y                              ; &1F7A: 31 19
         STA     (ScreenPtrLo),Y                              ; &1F7C: 91 19
         DEY                                          ; &1F7E: 88
-        BEQ     L1F65                                ; &1F7F: F0 E4
+        BEQ     PixelOp_EndRowReloadHeight                                ; &1F7F: F0 E4
         RTS                                          ; &1F81: 60
-Code_PixelOpEraseReverse:
 PixelOpEraseReverse:
         INC     RendererDataPtrLo                                  ; &1F82: E6 13
-        BEQ     L1F99                                ; &1F84: F0 13
-L1F86:
+        BEQ     PixelEraseReverse_CarryPage                                ; &1F84: F0 13
+PixelEraseReverse_Loop:
         LDA     (RendererDataPtrLo,X)                              ; &1F86: A1 13
         EOR     #&FF                                 ; &1F88: 49 FF
         AND     (ScreenPtrLo),Y                              ; &1F8A: 31 19
         STA     (ScreenPtrLo),Y                              ; &1F8C: 91 19
         DEY                                          ; &1F8E: 88
-        BEQ     L1F67                                ; &1F8F: F0 D6
+        BEQ     PixelOp_EndColumnUnwind                                ; &1F8F: F0 D6
         RTS                                          ; &1F91: 60
-Code_PixelOpClear:
 PixelOpClear:
         TXA                                          ; &1F92: 8A
         STA     (ScreenPtrLo),Y                              ; &1F93: 91 19
         DEY                                          ; &1F95: 88
-        BEQ     L1F67                                ; &1F96: F0 CF
+        BEQ     PixelOp_EndColumnUnwind                                ; &1F96: F0 CF
         RTS                                          ; &1F98: 60
-L1F99:
+PixelEraseReverse_CarryPage:
         INC     RendererDataPtrHi                                  ; &1F99: E6 14
-        BNE     L1F86                                ; &1F9B: D0 E9
+        BNE     PixelEraseReverse_Loop                                ; &1F9B: D0 E9
 
 ; Six operator addresses indexed by PixelOpIndex (0,2,4) plus 6 for erase mode.
 ; These bytes were previously false-disassembled as instructions.
@@ -3957,14 +4481,15 @@ PixelOperationTable:
 ; -----------------------------------------------------------------------------
 ; Runtime &1FA9: MODE 1 address calculation.
 ; -----------------------------------------------------------------------------
-Code_Mode1Address:
+; CONTRACT: convert logical RendererX/RendererY into the circular MODE 1 screen ring.
+; Effect: returns base pointer state in renderer zero page, including CRTC ScreenOrigin offset.
 Mode1Address:
         LDA     #&00                                 ; &1FA9: A9 00
         STA     Mode1XHigh                             ; &1FAB: 85 16
         LDA     RendererY                                  ; &1FAD: A5 22
         EOR     #&FF                                 ; &1FAF: 49 FF
         TAX                                          ; &1FB1: AA
-        AND     #&07                                 ; &1FB2: 29 07
+        AND     #MODE1_SCANLINES_PER_CHAR-1          ; &1FB2: 29 07
         STA     Mode1RowOffset                            ; &1FB4: 85 23
         TXA                                          ; &1FB6: 8A
         LSR     A                                    ; &1FB7: 4A
@@ -3979,11 +4504,11 @@ Mode1Address:
         ASL     A                                    ; &1FC4: 0A
         ROL     Mode1XHigh                             ; &1FC5: 26 16
         ORA     Mode1RowOffset                            ; &1FC7: 05 23
-        ADC     (&E0),Y                              ; &1FC9: 71 E0
+        ADC     (VDU_ROW_ADDRESS_TABLE_PTR),Y                              ; &1FC9: 71 E0
         TAX                                          ; &1FCB: AA
         DEY                                          ; &1FCC: 88
         LDA     Mode1XHigh                             ; &1FCD: A5 16
-        ADC     (&E0),Y                              ; &1FCF: 71 E0
+        ADC     (VDU_ROW_ADDRESS_TABLE_PTR),Y                              ; &1FCF: 71 E0
         TAY                                          ; &1FD1: A8
         TXA                                          ; &1FD2: 8A
         ADC     ScreenOriginLo                                  ; &1FD3: 65 0C
@@ -3991,24 +4516,24 @@ Mode1Address:
         TYA                                          ; &1FD6: 98
         ADC     ScreenOriginHi                                  ; &1FD7: 65 0D
         BIT     RendererX                            ; &1FD9: 24 21
-        BPL     L1FDF                                ; &1FDB: 10 02
-        SBC     #&07                                 ; &1FDD: E9 07
-L1FDF:
+        BPL     Mode1Address_AdjustHigh                                ; &1FDB: 10 02
+        SBC     #MODE1_NEGATIVE_X_HI_ADJUST         ; &1FDD: E9 07
+Mode1Address_AdjustHigh:
         TAY                                          ; &1FDF: A8
-        BPL     L1FE8                                ; &1FE0: 10 06
-L1FE2:
+        BPL     Mode1Address_SubtractHeight                                ; &1FE0: 10 06
+Mode1Address_WrapHigh:
         SEC                                          ; &1FE2: 38
-        SBC     #&50                                 ; &1FE3: E9 50
-        BMI     L1FE2                                ; &1FE5: 30 FB
+        SBC     #MODE1_SCREEN_RING_SIZE_HI           ; &1FE3: E9 50
+        BMI     Mode1Address_WrapHigh                                ; &1FE5: 30 FB
         TAY                                          ; &1FE7: A8
-L1FE8:
+Mode1Address_SubtractHeight:
         SEC                                          ; &1FE8: 38
         TXA                                          ; &1FE9: 8A
         SBC     RendererHeight                                  ; &1FEA: E5 18
         TAX                                          ; &1FEC: AA
-        BCS     L1FF0                                ; &1FED: B0 01
+        BCS     Mode1Address_StorePointers                                ; &1FED: B0 01
         DEY                                          ; &1FEF: 88
-L1FF0:
+Mode1Address_StorePointers:
         STX     ScreenPtrLo                                  ; &1FF0: 86 19
         STY     ScreenPtrHi                                  ; &1FF2: 84 1A
         STX     RendererScreenBaseLo                                  ; &1FF4: 86 15
@@ -4026,6 +4551,10 @@ L1FF0:
 ; &1FFD-&2FFF - sprite descriptors, composite definitions and bitmap data
 ; =============================================================================
 ORG REGION_SPRITES
+; SECTION: SPRITE DESCRIPTORS, COMPOSITES AND BITMAP PAYLOAD
+; Six parallel descriptor arrays define 92 sprite IDs. Entries point either to
+; primitive MODE 1 bitmap data or recursive three-byte composite-child records.
+; Trogg, platforms and ladders are composites assembled by SpriteTraversal.
 ;
 ; Six parallel 92-entry descriptor arrays indexed by sprite ID.  WidthFlags
 ; values of &00/&80 denote composite definitions; ordinary bitmap entries carry
@@ -4040,6 +4569,7 @@ ORG REGION_SPRITES
 ;   &54-&56 vertical structures     &57-&5A ladder composites
 ;   &5B death/explosion composite
 ;
+; MOD: Sprite descriptors/bitmap data below are editable, but keep the six descriptor arrays at 92 entries and preserve composite child records. See docs/SPRITE_CATALOG.md.
 SpriteXOffsets:
         EQUB &00,&01,&01,&01,&00,&01,&02,&01,&01,&FF,&00,&FF,&01,&00,&00,&00
         EQUB &00,&00,&FD,&FE,&FE,&00,&FF,&FE,&00,&00,&00,&00,&00,&FF,&FD,&00
@@ -4322,11 +4852,18 @@ SpriteDefinitionData:
 ; This routine is needed only until it jumps to &0380.  Frak subsequently uses
 ; &3000 upward as display memory, so the startup segment is intentionally disposable.
 ORG REGION_STARTUP
+; SECTION: ONE-SHOT MACHINE INITIALISATION
+; The boot loader has already installed every sparse segment. This code clears
+; game state, installs vectors/timers, sets up sprite descriptor pointers and
+; sound/tune offsets, then jumps to &0380. It is thereafter disposable screen RAM.
 start:
 
+; CONTRACT: one-shot sparse-image startup; disposable after entry to the game.
+; Effect: establishes stack/ZP state, envelopes, vectors, sprite pointers, MOS/VIA setup and
+; sound-stream offsets, then jumps to RuntimeGameEntry.
 GameInitialise:
         SEI
-        LDX #&A2
+        LDX #STARTUP_SAFE_STACK_TOP
         TXS
         CLD
 
@@ -4336,26 +4873,26 @@ GameInitialise:
 ; the recursive composite-sprite walker scratch at &1E-&20 and the PRNG state
 ; at &28.  Initialise those values explicitly and clear the rest.
         LDA #&00
-        LDX #&97
+        LDX #GAME_ZERO_PAGE_LAST
 Startup_ClearZeroPage:
         STA &00,X
         DEX
         BPL Startup_ClearZeroPage
 
-        LDA #&2A
+        LDA #STARTUP_TRAVERSAL_COUNT_SEED
         STA SpriteTraversalCount
-        LDA #&C8
+        LDA #STARTUP_TRAVERSAL_PTR_LO_SEED
         STA SpriteTraversalPtrLo
-        LDA #&D4
+        LDA #STARTUP_TRAVERSAL_PTR_HI_SEED
         STA SpriteTraversalPtrHi
-        LDA #&30
+        LDA #STARTUP_RANDOM_SEED
         STA RandomState
 
 ; *TAPE is selected by boot-loader @basic metadata before segment installation.
 
-        LDA #&40
+        LDA #ENGINE_PREFIX_INITIAL_STATE
         STA EnginePrefixState
-        LDY #&0F
+        LDY #MOS_WORKSPACE_CLEAR_LAST
         LDA #&00
 Startup_ClearMosWorkspace:
         STA MOSWorkspaceClearBase,Y
@@ -4363,21 +4900,21 @@ Startup_ClearMosWorkspace:
         BPL Startup_ClearMosWorkspace
 
 ; Initialise the four original sound/envelope OSWORD blocks.
-        LDX #<StartupOSWORD_Block0
-        LDY #>StartupOSWORD_Block0
-        LDA #&08
+        LDX #<EnvelopeMusicDefinition
+        LDY #>EnvelopeMusicDefinition
+        LDA #OSWORD_ENVELOPE
         JSR OSWORDWrapper
-        LDX #<StartupOSWORD_Block1
-        LDY #>StartupOSWORD_Block1
-        LDA #&08
+        LDX #<EnvelopeMoveDefinition
+        LDY #>EnvelopeMoveDefinition
+        LDA #OSWORD_ENVELOPE
         JSR OSWORDWrapper
-        LDX #<StartupOSWORD_Block2
-        LDY #>StartupOSWORD_Block2
-        LDA #&08
+        LDX #<EnvelopeYoyoHitDefinition
+        LDY #>EnvelopeYoyoHitDefinition
+        LDA #OSWORD_ENVELOPE
         JSR OSWORDWrapper
-        LDX #<StartupOSWORD_Block3
-        LDY #>StartupOSWORD_Block3
-        LDA #&08
+        LDX #<EnvelopeCollectDefinition
+        LDY #>EnvelopeCollectDefinition
+        LDA #OSWORD_ENVELOPE
         JSR OSWORDWrapper
 
 ; Install the event handler, preserving the original KEYV before replacing it.
@@ -4390,8 +4927,8 @@ Startup_ClearMosWorkspace:
         STY SavedKeyVHi
         STX SavedKeyVLo
 
-        LDX #&04
-        LDA #&0E
+        LDX #EVENT_VERTICAL_SYNC
+        LDA #OSBYTE_ENABLE_EVENT
         JSR OSBYTEWrapper
 
 ; Install the sound IRQ handler, preserving the previous IRQ1V.
@@ -4405,15 +4942,15 @@ Startup_ClearMosWorkspace:
         STX IRQ1V
 
         LDX #&00
-        STX SoundDisabledFlag
-        STX SoundIrqGate
-        STX Orientation
-        STX InputState
-        STX PauseGate
-        STX OSCallGate
+        STX SoundMutedFlag
+        STX ScrollRefreshRequestFlag
+        STX VerticalFlipFlag
+        STX SelectedControlScheme
+        STX PauseFlag
+        STX MosCallInProgressFlag
         DEX
-        STX GameState2F
-        STX ControlMode
+        STX MusicInhibitFlag
+        STX ControlScheme
         JSR ResetCountdownDivider
 
 ; Build six zero-page pointers to the parallel sprite descriptor arrays.
@@ -4444,31 +4981,31 @@ Startup_ClearMosWorkspace:
 
         LDA #>Mode1Masks
         STA MaskLookupPtrHi
-        LDY #&CF
-        LDX #&20
-        LDA #&CA
+        LDY #OSBYTE_KEYBOARD_STATUS_Y
+        LDX #OSBYTE_KEYBOARD_STATUS_X
+        LDA #OSBYTE_KEYBOARD_STATUS
         JSR OSBYTEWrapper
         LDY #&00
-        LDX #&08
-        LDA #&BE
+        LDX #OSBYTE_ADC_8BIT_X
+        LDA #OSBYTE_ADC_8BIT_MODE
         JSR OSBYTEWrapper
-        LDA #&76
+        LDA #OSBYTE_REFLECT_LEDS
         JSR OSBYTEWrapper
-        LDX #&28
-        LDA #&09
+        LDX #OSBYTE_FLASH_MARK_X
+        LDA #OSBYTE_SET_FLASH_MARK
         JSR OSBYTEWrapper
-        LDX #&14
-        LDA #&0A
+        LDX #OSBYTE_FLASH_SPACE_X
+        LDA #OSBYTE_SET_FLASH_SPACE
         JSR OSBYTEWrapper
 
-        LDA #&E0
+        LDA #USER_VIA_IER_INITIAL
         STA USER_VIA_IER
-        LDA #&40
+        LDA #USER_VIA_ACR_INITIAL
         STA USER_VIA_ACR
 
 ; Cache the five sound-stream segment offsets in &8B-&8F.
         LDY #&00
-        LDX #&8B
+        LDX #TuneOffsetScreenA
 Startup_FindSoundStreams:
         STY &00,X
 Startup_ScanSoundStream:
@@ -4476,7 +5013,7 @@ Startup_ScanSoundStream:
         LDA SoundStream-1,Y
         BPL Startup_ScanSoundStream
         INX
-        CPX #&8F
+        CPX #TuneOffsetComplete
         BCC Startup_FindSoundStreams
         STY &00,X
 
@@ -4485,19 +5022,29 @@ Startup_ScanSoundStream:
         LDY #>KeyVHandler
         STY KEYV+1
         STX KEYV
-        LDA #&01
+        LDA #SYSTEM_VIA_IER_INITIAL
         STA SYSTEM_VIA_IER
         JMP RuntimeGameEntry
 
-StartupOSWORD_Block0:
+; OSWORD 8 envelope records below are the four envelopes selected by the sound
+; blocks at &01A4. Byte order is the BBC ENVELOPE parameter order:
+; number,T,PI1,PI2,PI3,PN1,PN2,PN3,AA,AD,AS,AR,ALA,ALD.
+; MOD: These 14-byte records control the four envelope shapes. The first byte
+; must continue to match SOUND_ENVELOPE_MUSIC/MOVE/YOYO_HIT/COLLECT above.
+EnvelopeMusicDefinition:
         EQUB &01,&01,&00,&00,&00,&01,&01,&01,&64,&F6,&FE,&FC,&64,&3C    ; original &4653
-StartupOSWORD_Block1:
+        ; ENVELOPE 1,1,0,0,0,1,1,1,100,-10,-2,-4,100,60
+EnvelopeMoveDefinition:
         EQUB &02,&01,&00,&00,&00,&01,&01,&01,&64,&9C,&9C,&9C,&64,&00    ; original &4661
-StartupOSWORD_Block2:
+        ; ENVELOPE 2,1,0,0,0,1,1,1,100,-100,-100,-100,100,0
+EnvelopeYoyoHitDefinition:
         EQUB &03,&82,&00,&02,&FD,&02,&06,&04,&3C,&07,&F2,&F2,&3C,&6E    ; original &466F
-StartupOSWORD_Block3:
+        ; ENVELOPE 3,&82,0,2,-3,2,6,4,60,7,-14,-14,60,110
+EnvelopeCollectDefinition:
         EQUB &04,&82,&00,&FC,&02,&03,&03,&28,&28,&FC,&FB,&FB,&78,&74    ; original &467D
+        ; ENVELOPE 4,&82,0,-4,2,3,3,40,40,-4,-5,-5,120,116
 
 EndOfImage:
 ; End of emitted startup segment.
 
+s
