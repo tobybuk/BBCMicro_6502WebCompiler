@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frak! — JavaScript parity port Stage 4.7</title>
+<style>
+  :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  body { margin:0; background:#111; color:#eee; display:flex; min-height:100vh; align-items:center; justify-content:center; }
+  main { width:min(1040px,96vw); }
+  h1 { margin:.2rem 0 .3rem; font-size:1.25rem; }
+  .sub { color:#aaa; margin:0 0 1rem; }
+  .layout { display:grid; grid-template-columns:minmax(320px,640px) 1fr; gap:1rem; align-items:start; }
+  .screen-shell { background:#000; border:1px solid #555; padding:8px; }
+  canvas { width:100%; aspect-ratio:5/4; display:block; image-rendering:pixelated; image-rendering:crisp-edges; }
+  aside { border:1px solid #444; padding:.8rem; background:#181818; }
+  button { font:inherit; margin:.15rem .08rem; padding:.42rem .6rem; cursor:pointer; }
+  dt { color:#aaa; margin-top:.6rem; } dd { margin-left:0; overflow-wrap:anywhere; }
+  .status { margin-top:1rem; color:#9fd; line-height:1.35; }
+  .warning { color:#fdc; line-height:1.4; }
+  code { color:#cfb; }
+  @media (max-width:760px) { .layout { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Frak! — browser JavaScript port</h1>
+  <p class="sub">Stage 4.7 parity build · BBC MOS pitch/envelope semantics · original left/right attract transitions · Stage 2.1 gameplay retained · explicit 6502→JS mapping</p>
+  <div class="layout">
+    <div class="screen-shell"><canvas id="screen" width="320" height="256" aria-label="Frak game display"></canvas></div>
+    <aside>
+      <div><button id="titleScreen">Title / cast</button><button id="newGame">New game</button></div>
+      <div><button data-level="A">Level A</button><button data-level="B">Level B</button><button data-level="C">Level C</button></div>
+      <div><button id="prevTransform">◀ transform</button><button id="nextTransform">transform ▶</button></div>
+      <div><button id="soundOn">Sound on</button><button id="soundOff">Sound off</button></div>
+      <div><button id="testScore">+500 score parity test</button></div>
+      <dl>
+        <dt>Level</dt><dd id="levelValue"></dd>
+        <dt>Transform cycle</dt><dd id="transformValue"></dd>
+        <dt>Player</dt><dd id="playerValue"></dd>
+        <dt>Time</dt><dd id="timeValue"></dd>
+        <dt>Object queues</dt><dd id="objectsValue"></dd>
+        <dt>Score</dt><dd id="scoreValue"></dd>
+        <dt>Lives</dt><dd id="livesValue"></dd>
+      </dl>
+      <p id="status" class="status"></p>
+      <p><strong>Original controls:</strong> <code>Z</code> left, <code>X</code> right, <code>'</code> up/jump, <code>/</code> down, <code>RETURN</code> yo-yo. Arrow keys are convenience aliases; Space aliases RETURN during play and starts from the title.</p>
+      <p>Other original-style controls: <code>Q</code> sound off, <code>S</code> sound on, <code>Delete</code> freeze, <code>C</code> continue, <code>Escape</code> return to title. Debug/navigation: <code>1/2/3</code> select A/B/C; <code>[</code>/<code>]</code> change transform.</p>
+      <p class="warning"><strong>Stage 4.7 scope:</strong> gameplay remains unchanged from the validated Stage 2.1/3 path. Sound now uses the BBC MOS pitch lookup, 100 Hz ENVELOPE state and SN76489 attenuation model, while Web Audio remains the final square-wave output. The attract screen runs the recovered 31-frame left/right transitions and final Trogg sequence. Title, cast and high-score text uses a fixed BBC 8×8 bitmap renderer. Stage 4.7 also matches the reference title-panel geometry, suppresses leading score zeroes like PrintPackedBCD, and keeps Trogg visible when the final FRAK! bubble is overlaid. Browsers require a user gesture before audio can become audible.</p>
+    </aside>
+  </div>
+</main>
+<script src="./frak-data.js"></script>
+<script src="./frak.js"></script>
+</body>
+</html>

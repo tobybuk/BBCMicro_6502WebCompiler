@@ -1,0 +1,10 @@
+{
+  "name": "frak-browser-parity-port",
+  "version": "0.4.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test-data.mjs && node test-browser-host.mjs && node test-stage2.mjs && node test-stage3.mjs && node test-stage4.mjs && node test-stage4_1.mjs && node test-stage4_2.mjs && node test-stage4_3.mjs && node test-standalone.mjs",
+    "test:stage4_6": "node test-stage4_6.mjs"
+  }
+}
