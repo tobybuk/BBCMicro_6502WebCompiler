@@ -136,6 +136,7 @@ message:
     <p><b>Undocumented NMOS opcodes:</b> common forms are supported, including <code>SLO RLA SRE RRA SAX LAX DCP ISC ANC ALR ARR AXS LAS AHX SHY SHX TAS</code>. The assembler's <code>NOP abs,X</code> form uses opcode <code>&DC</code>; exact alternative illegal encodings can always be emitted with <code>EQUB</code>. Disable undocumented opcodes using the toolbar checkbox.</p>
     <p><b>Origin:</b> if the source contains no <code>ORG</code>, the toolbar origin is used. This makes a source file relocatable without embedding an assembly address. An explicit <code>ORG</code> in the source takes precedence. A relocatable source may optionally contain a comment such as <code>; @default-origin &amp;1900</code>; when that file is loaded the value is copied into the Origin field, but it remains user-editable and is not an assembly directive.</p>
     <p><b>Loader BASIC:</b> source comments of the form <code>; @basic ENVELOPE1,1,0,0,0,1,1,1,100,-10,0,-10,100,0</code> are ignored by 6502 assembly but are copied, in source/INCLUDE order, into the tokenised BBC BASIC loader made by <b>Save boot disk…</b>. One <code>@basic</code> line becomes one BASIC line and runs after the loader selects MODE 7 but before relocation. Star commands such as <code>; @basic *FX200,3</code> are also accepted. These directives never alter the machine-code binary.</p>
+    <p><b>jsbeeb key remapping:</b> source comments such as <code>; @jsbeeb-key Z=CAPSLOCK</code> and <code>; @jsbeeb-key X=CTRL</code> are ignored by 6502 assembly but are passed to jsbeeb when <b>Run in jsbeeb</b> is used. Each line maps one host key to one BBC key and becomes a jsbeeb URL parameter such as <code>KEY.Z=CAPSLOCK</code>. These directives never alter the machine-code binary or downloaded SSD.</p>
     <p><b>Multiple ORGs:</b> emitted ranges are shown as separate segments. “Save binary” creates one flat file from the lowest to highest emitted address and fills gaps with the selected fill byte. Each individual segment can also be downloaded from the Segments tab.</p>
   </div>
 </dialog>
@@ -143,6 +144,7 @@ message:
   <div class="dialogHead"><strong>Create bootable BBC DFS disk</strong><button class="closeBtn" id="closeBoot">×</button></div>
   <div class="dialogBody">
     <p>The generated SSD contains <code>!BOOT</code> and one tokenised BBC BASIC program. The compiled machine code is appended directly after the BASIC program. The loader copies a small overlap-safe mover to high RAM, relocates the binary to its assembled origin, and jumps to the selected entry point.</p>
+    <p><b>Run in jsbeeb</b> creates the same SSD in memory, sends it inline to <code>https://bbc.xania.org/</code> and requests an automatic Shift-Break, so the freshly assembled program boots immediately in the emulator. Any source-level <code>; @jsbeeb-key HOST=BBC</code> mappings are added to the same jsbeeb URL automatically.</p>
     <div class="formGrid">
       <label for="diskTitle">Disk title</label><input id="diskTitle" type="text" maxlength="12" value="6502 PROGRAM">
       <label for="programName">BASIC program name</label><input id="programName" type="text" maxlength="7" value="PROGRAM">
@@ -153,10 +155,12 @@ message:
       <div class="hint">May be a source symbol or a hexadecimal/decimal address.</div>
       <label>Source BASIC setup</label><input id="bootBasicCount" type="text" readonly value="0 @basic lines">
       <div class="hint">Executable setup statements taken from <code>; @basic ...</code> comments in the assembled source and its INCLUDE files. They run before relocation.</div>
+      <label>jsbeeb key mappings</label><input id="bootJsBeebKeyCount" type="text" readonly value="0 mappings">
+      <div class="hint">Mappings taken from <code>; @jsbeeb-key HOST=BBC</code> comments in the assembled source and its INCLUDE files. They affect only <b>Run in jsbeeb</b>.</div>
     </div>
     <p id="bootWarning" class="warn"></p>
   </div>
-  <div class="dialogActions"><button id="cancelBoot">Cancel</button><button class="primary" id="createBootDisk">Create SSD</button></div>
+  <div class="dialogActions"><button id="cancelBoot">Cancel</button><button id="createBootDisk">Create SSD</button><button class="primary" id="runBootDisk">Run in jsbeeb</button></div>
 </dialog>
 <script>
 /*
@@ -676,7 +680,7 @@ message:
     OPCODES,
     MODES,
     UNDOCUMENTED,
-    version: '1.4.0'
+    version: '1.6.0'
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -871,6 +875,54 @@ message:
     }
 
     return statements;
+  }
+
+  // jsbeeb-only keyboard remapping can also travel with the source as comments:
+  //
+  //     ; @jsbeeb-key Z=CAPSLOCK
+  //     ; @jsbeeb-key X=CTRL
+  //
+  // The host key is the key on the user's modern keyboard and the BBC key is
+  // the key jsbeeb should press. These become KEY.<host>=<BBC> URL parameters
+  // only when "Run in jsbeeb" is used. They do not alter assembly or the SSD.
+  function collectJsBeebKeyMappings(expandedLines) {
+    const mappings = [];
+    const seenHosts = new Map();
+
+    for (const info of expandedLines || []) {
+      const text = String(info.text || '');
+      const marker = text.match(/^\s*;\s*@jsbeeb-key\b(.*)$/i);
+
+      if (!marker) {
+        continue;
+      }
+
+      const body = String(marker[1] || '').trim();
+      const match = body.match(/^([A-Za-z0-9_]+)\s*=\s*([A-Za-z0-9_]+)\s*(?:;.*)?$/);
+
+      if (!match) {
+        throw new Error(
+          `${info.file}:${info.line}: @jsbeeb-key must use HOST=BBC, for example Z=CAPSLOCK.`
+        );
+      }
+
+      const host = match[1].toUpperCase();
+      const bbc = match[2].toUpperCase();
+
+      if (seenHosts.has(host)) {
+        const previous = seenHosts.get(host);
+        throw new Error(
+          `${info.file}:${info.line}: duplicate @jsbeeb-key mapping for ${host}; ` +
+          `first mapped at ${previous.file}:${previous.line}.`
+        );
+      }
+
+      const mapping = {host, bbc, file: info.file, line: info.line};
+      seenHosts.set(host, mapping);
+      mappings.push(mapping);
+    }
+
+    return mappings;
   }
 
   function resolveEntryPoint(text, result) {
@@ -1093,6 +1145,15 @@ message:
       }
     }
 
+    if (lastResult.success) {
+      try {
+        lastResult.jsbeebKeyMappings = collectJsBeebKeyMappings(assembler.expanded);
+      } catch (error) {
+        lastResult.jsbeebKeyMappings = [];
+        lastResult.jsbeebKeyMetadataError = error.message;
+      }
+    }
+
     if (lastResult.success && lastResult.binary.length) {
       lastResult.sha256 = await sha256(lastResult.binary);
     }
@@ -1164,6 +1225,7 @@ message:
           <div class="key">Segments</div><div>${result.segments.length}</div>
           <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
           <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
+          <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
           <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
           ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
         </div>`;
@@ -1736,8 +1798,15 @@ message:
     byId('bootBasicCount').value =
       `${setupStatements.length} @basic line${setupStatements.length === 1 ? '' : 's'}`;
 
+    const keyMappings = lastResult.jsbeebKeyMappings || [];
+    byId('bootJsBeebKeyCount').value =
+      `${keyMappings.length} mapping${keyMappings.length === 1 ? '' : 's'}`;
+
     if (lastResult.basicMetadataError) {
       byId('bootWarning').textContent = lastResult.basicMetadataError;
+    } else if (lastResult.jsbeebKeyMetadataError) {
+      byId('bootWarning').textContent =
+        lastResult.jsbeebKeyMetadataError + ' The SSD can still be created, but Run in jsbeeb will not start until the mapping is corrected.';
     } else {
       byId('bootWarning').textContent =
         `The temporary mover occupies ${hex4(MOVER_ADDRESS)}-${hex4(MOVER_END)}. The compiled destination must not overlap it.`;
@@ -1746,26 +1815,30 @@ message:
     byId('bootDialog').showModal();
   }
 
+  function buildBootDiskFromDialog() {
+    const diskTitle = byId('diskTitle').value.toUpperCase().replace(/[^ -~]/g, '').slice(0, 12) || '6502 PROGRAM';
+    const programName = byId('programName').value.toUpperCase().replace(/[^A-Z0-9!_-]/g, '').slice(0, 7);
+
+    if (!programName) {
+      throw new Error('Enter a valid DFS program filename.');
+    }
+
+    if (lastResult.basicMetadataError) {
+      throw new Error(lastResult.basicMetadataError);
+    }
+
+    const entryPoint = resolveEntryPoint(byId('entryPoint').value, lastResult);
+    return buildDfsSsd(lastResult, {
+      diskTitle,
+      programName,
+      entryPoint,
+      basicStatements: lastResult.basicStatements || []
+    });
+  }
+
   function createBootDisk() {
     try {
-      const diskTitle = byId('diskTitle').value.toUpperCase().replace(/[^ -~]/g, '').slice(0, 12) || '6502 PROGRAM';
-      const programName = byId('programName').value.toUpperCase().replace(/[^A-Z0-9!_-]/g, '').slice(0, 7);
-
-      if (!programName) {
-        throw new Error('Enter a valid DFS program filename.');
-      }
-
-      if (lastResult.basicMetadataError) {
-        throw new Error(lastResult.basicMetadataError);
-      }
-
-      const entryPoint = resolveEntryPoint(byId('entryPoint').value, lastResult);
-      const disk = buildDfsSsd(lastResult, {
-        diskTitle,
-        programName,
-        entryPoint,
-        basicStatements: lastResult.basicStatements || []
-      });
+      const disk = buildBootDiskFromDialog();
 
       downloadBlob(
         disk.image,
@@ -1775,6 +1848,167 @@ message:
 
       byId('bootDialog').close();
     } catch (error) {
+      byId('bootWarning').textContent = error.message;
+    }
+  }
+
+  function bytesToBase64(bytes) {
+    // Avoid Function.apply/spread argument limits on a full 200 KB SSD.
+    const chunkSize = 0x8000;
+    let binary = '';
+
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      const chunk = bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length));
+      binary += String.fromCharCode(...chunk);
+    }
+
+    return btoa(binary);
+  }
+
+  function crc32(bytes) {
+    let crc = 0xFFFFFFFF;
+
+    for (const byte of bytes) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) {
+        crc = (crc >>> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
+      }
+    }
+
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function writeU16(bytes, offset, value) {
+    bytes[offset] = value & 0xFF;
+    bytes[offset + 1] = (value >>> 8) & 0xFF;
+  }
+
+  function writeU32(bytes, offset, value) {
+    bytes[offset] = value & 0xFF;
+    bytes[offset + 1] = (value >>> 8) & 0xFF;
+    bytes[offset + 2] = (value >>> 16) & 0xFF;
+    bytes[offset + 3] = (value >>> 24) & 0xFF;
+  }
+
+  async function deflateRaw(bytes) {
+    if (typeof CompressionStream === 'undefined') {
+      throw new Error('CompressionStream is unavailable.');
+    }
+
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  async function makeSingleFileZip(filename, data) {
+    const name = Uint8Array.from(asciiBytes(filename));
+    const compressed = await deflateRaw(data);
+    const checksum = crc32(data);
+
+    const localHeaderSize = 30 + name.length;
+    const centralHeaderSize = 46 + name.length;
+    const centralOffset = localHeaderSize + compressed.length;
+    const endOffset = centralOffset + centralHeaderSize;
+    const zip = new Uint8Array(endOffset + 22);
+
+    // Local file header.
+    writeU32(zip, 0, 0x04034B50);
+    writeU16(zip, 4, 20);       // version needed
+    writeU16(zip, 6, 0);        // flags
+    writeU16(zip, 8, 8);        // deflate
+    writeU16(zip, 10, 0);       // modification time
+    writeU16(zip, 12, 0);       // modification date
+    writeU32(zip, 14, checksum);
+    writeU32(zip, 18, compressed.length);
+    writeU32(zip, 22, data.length);
+    writeU16(zip, 26, name.length);
+    writeU16(zip, 28, 0);       // extra length
+    zip.set(name, 30);
+    zip.set(compressed, localHeaderSize);
+
+    // Central directory header.
+    const c = centralOffset;
+    writeU32(zip, c, 0x02014B50);
+    writeU16(zip, c + 4, 20);    // version made by
+    writeU16(zip, c + 6, 20);    // version needed
+    writeU16(zip, c + 8, 0);     // flags
+    writeU16(zip, c + 10, 8);    // deflate
+    writeU16(zip, c + 12, 0);
+    writeU16(zip, c + 14, 0);
+    writeU32(zip, c + 16, checksum);
+    writeU32(zip, c + 20, compressed.length);
+    writeU32(zip, c + 24, data.length);
+    writeU16(zip, c + 28, name.length);
+    writeU16(zip, c + 30, 0);    // extra length
+    writeU16(zip, c + 32, 0);    // comment length
+    writeU16(zip, c + 34, 0);    // disk number
+    writeU16(zip, c + 36, 0);    // internal attributes
+    writeU32(zip, c + 38, 0);    // external attributes
+    writeU32(zip, c + 42, 0);    // local header offset
+    zip.set(name, c + 46);
+
+    // End of central directory.
+    const e = endOffset;
+    writeU32(zip, e, 0x06054B50);
+    writeU16(zip, e + 4, 0);
+    writeU16(zip, e + 6, 0);
+    writeU16(zip, e + 8, 1);
+    writeU16(zip, e + 10, 1);
+    writeU32(zip, e + 12, centralHeaderSize);
+    writeU32(zip, e + 16, centralOffset);
+    writeU16(zip, e + 20, 0);
+
+    return zip;
+  }
+
+  function jsBeebKeyMappingFragment(mappings) {
+    return (mappings || []).map((mapping) =>
+      '&KEY.' + encodeURIComponent(mapping.host) + '=' + encodeURIComponent(mapping.bbc)
+    ).join('');
+  }
+
+  async function makeJsBeebRunUrl(ssdBytes, keyMappings = []) {
+    const keyFragment = jsBeebKeyMappingFragment(keyMappings);
+
+    try {
+      // jsbeeb accepts URL parameters after the hash as well as in the query.
+      // Put the inline disk in the fragment so the large Base64 payload is never
+      // sent to CloudFront as part of the HTTP request (avoids HTTP 414).
+      // The data: schema accepts a base64 ZIP containing a disc image.
+      const zip = await makeSingleFileZip('disk.ssd', ssdBytes);
+      return 'https://bbc.xania.org/#disc1=data:' +
+        encodeURIComponent(bytesToBase64(zip)) + '&autoboot' + keyFragment;
+    } catch (compressionError) {
+      // Older browsers can still use jsbeeb's raw inline disk schema.
+      const base64 = bytesToBase64(ssdBytes);
+      return 'https://bbc.xania.org/#disc1=b64data:' +
+        encodeURIComponent(base64) + '&autoboot' + keyFragment;
+    }
+  }
+
+  async function runBootDisk() {
+    // Open synchronously from the click handler so browsers do not treat the
+    // emulator tab as an unsolicited popup. If disk creation then fails, close it.
+    const emulatorWindow = window.open('about:blank', '_blank');
+
+    if (!emulatorWindow) {
+      byId('bootWarning').textContent =
+        'The browser blocked the jsbeeb window. Allow pop-ups for this assembler and try again.';
+      return;
+    }
+
+    try {
+      if (lastResult.jsbeebKeyMetadataError) {
+        throw new Error(lastResult.jsbeebKeyMetadataError);
+      }
+
+      const disk = buildBootDiskFromDialog();
+      emulatorWindow.location.href = await makeJsBeebRunUrl(
+        disk.image,
+        lastResult.jsbeebKeyMappings || []
+      );
+      byId('bootDialog').close();
+    } catch (error) {
+      emulatorWindow.close();
       byId('bootWarning').textContent = error.message;
     }
   }
@@ -1863,6 +2097,7 @@ message:
   byId('closeBoot').onclick = () => byId('bootDialog').close();
   byId('cancelBoot').onclick = () => byId('bootDialog').close();
   byId('createBootDisk').onclick = createBootDisk;
+  byId('runBootDisk').onclick = runBootDisk;
 
   // Keyboard shortcuts.
   window.addEventListener('keydown', (event) => {
@@ -1930,9 +2165,12 @@ message:
   // They are part of the single HTML file and do not require any external code.
   window.BBC6502BootTools = Object.freeze({
     collectLoaderBasicStatements,
+    collectJsBeebKeyMappings,
     tokeniseBasicLoaderStatement,
     makeBasicLoader,
-    buildDfsSsd
+    buildDfsSsd,
+    jsBeebKeyMappingFragment,
+    makeJsBeebRunUrl
   });
 
   byId('version').textContent = 'assembler ' + version;
