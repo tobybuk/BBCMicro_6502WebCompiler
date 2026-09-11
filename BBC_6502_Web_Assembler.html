@@ -73,6 +73,7 @@ dialog::backdrop{background:#0009}.dialogHead{display:flex;justify-content:space
   <button id="newBtn">New</button>
   <button id="openBtn">Open file(s)</button>
   <button id="folderBtn">Open project folder</button>
+  <button id="githubBtn" title="Load assembly source files from the BBCMicro_6502WebCompiler GitHub repository">Load GitHub sources</button>
   <button id="saveSourceBtn">Save source</button>
   <button id="saveSourceAsBtn">Save As…</button>
   <button class="primary" id="assembleBtn">Assemble</button>
@@ -680,7 +681,7 @@ message:
     OPCODES,
     MODES,
     UNDOCUMENTED,
-    version: '1.6.0'
+    version: '1.7.0'
   };
 
   if (typeof module !== 'undefined' && module.exports) {
@@ -723,6 +724,15 @@ message:
   let currentFile = '';
   let isDirty = false;
   let lastResult = null;
+
+  // Public GitHub source repository used by "Load GitHub sources".
+  // Keeping this configuration here makes it easy to point a copied assembler
+  // at a different repository later without changing the loader itself.
+  const githubSourceRepository = Object.freeze({
+    owner: 'tobybuk',
+    repo: 'BBCMicro_6502WebCompiler',
+    branch: 'main'
+  });
 
   const sample = `; BBC 6502 Web Assembler
 ; Generic NMOS 6502 example
@@ -1021,6 +1031,103 @@ message:
     setDirty(false);
     lastResult = null;
     renderResult(null);
+  }
+
+  function isAssemblerSourcePath(path) {
+    return /\.(asm|s|inc|6502|txt)$/i.test(String(path || ''));
+  }
+
+  function findRequestedGitHubSource(names, requestedSource) {
+    const wanted = String(requestedSource || '').trim();
+
+    if (!wanted) {
+      return '';
+    }
+
+    // Prefer an exact repository-relative path, case-insensitively.
+    const exact = names.find((name) => name.toLowerCase() === wanted.toLowerCase());
+    if (exact) {
+      return exact;
+    }
+
+    // A convenient ?source=Zalaga.asm URL should also work when that source is
+    // subsequently moved into a subdirectory, provided the basename is unique.
+    const basenameMatches = names.filter((name) =>
+      baseName(name).toLowerCase() === baseName(wanted).toLowerCase()
+    );
+
+    return basenameMatches.length === 1 ? basenameMatches[0] : '';
+  }
+
+  async function loadGitHubSources(requestedSource = '') {
+    if (isDirty && !confirm('Discard unsaved editor changes and load the GitHub sources?')) {
+      return;
+    }
+
+    const button = byId('githubBtn');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Loading GitHub…';
+
+    try {
+      const {owner, repo, branch} = githubSourceRepository;
+      const treeUrl =
+        `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}` +
+        `/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+
+      const treeResponse = await fetch(treeUrl, {
+        headers: {Accept: 'application/vnd.github+json'}
+      });
+
+      if (!treeResponse.ok) {
+        throw new Error(`GitHub repository query failed (HTTP ${treeResponse.status}).`);
+      }
+
+      const tree = await treeResponse.json();
+      const entries = (tree.tree || [])
+        .filter((entry) => entry.type === 'blob' && isAssemblerSourcePath(entry.path))
+        .sort((left, right) => left.path.localeCompare(right.path));
+
+      if (!entries.length) {
+        throw new Error('No assembler source files were found in the GitHub repository.');
+      }
+
+      const loaded = await Promise.all(entries.map(async (entry) => {
+        const encodedPath = entry.path
+          .split('/')
+          .map((part) => encodeURIComponent(part))
+          .join('/');
+        const rawUrl =
+          `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/` +
+          `${encodeURIComponent(repo)}/${encodeURIComponent(branch)}/${encodedPath}`;
+        const response = await fetch(rawUrl, {cache: 'no-cache'});
+
+        if (!response.ok) {
+          throw new Error(`Could not load ${entry.path} (HTTP ${response.status}).`);
+        }
+
+        return [entry.path, await response.text()];
+      }));
+
+      files = new Map(loaded);
+      const names = [...files.keys()];
+      const requested = findRequestedGitHubSource(names, requestedSource);
+      const preferredMain = names.find((name) => /\.(asm|s|6502)$/i.test(name));
+
+      currentFile = requested || preferredMain || names[0];
+      editor.value = files.get(currentFile) || '';
+      applySourceMetadata(editor.value);
+      refreshFileSelect();
+      setDirty(false);
+      lastResult = null;
+      renderResult(null);
+      updateCursor();
+    } catch (error) {
+      alert(`Could not load GitHub sources.\n\n${error.message}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 
   function downloadBlob(data, name, type = 'application/octet-stream') {
@@ -2064,6 +2171,7 @@ message:
   byId('newBtn').onclick = newSource;
   byId('openBtn').onclick = () => openInput.click();
   byId('folderBtn').onclick = () => folderInput.click();
+  byId('githubBtn').onclick = () => loadGitHubSources();
   byId('saveSourceBtn').onclick = saveSource;
   byId('saveSourceAsBtn').onclick = saveSourceAs;
   assembleButton.onclick = assemble;
@@ -2175,6 +2283,14 @@ message:
 
   byId('version').textContent = 'assembler ' + version;
   newSource();
+
+  // A hosted link may request a repository source directly, for example:
+  //   ?source=Zalaga.asm
+  // In that case load the GitHub project immediately and select that file.
+  const requestedGitHubSource = new URLSearchParams(window.location.search).get('source');
+  if (requestedGitHubSource) {
+    loadGitHubSources(requestedGitHubSource);
+  }
 })();
 
 </script>
