@@ -1180,7 +1180,7 @@ message:
                 OPCODES,
                 MODES,
                 UNDOCUMENTED,
-                version: '2.0.1'
+                version: '2.0.2'
             };
 
             if (typeof module !== 'undefined' && module.exports) {
@@ -1452,7 +1452,7 @@ message:
             }
 
             function isAssemblerSourcePath(path) {
-                return /\.(asm|s|inc|6502|txt)$/i.test(String(path || ''));
+                return /\.(asm|6502)$/i.test(String(path || ''));
             }
 
             function findRequestedGitHubSource(names, requestedSource) {
