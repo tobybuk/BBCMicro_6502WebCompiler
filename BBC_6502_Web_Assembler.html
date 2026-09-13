@@ -529,7 +529,6 @@
         <button id="saveListingBtn" disabled>Save listing</button>
         <button id="saveSymbolsBtn" disabled>Save symbols</button>
         <span class="spacer"></span>
-        <label class="option">origin <input id="originAddress" type="text" value="1900" maxlength="5" title="Default assembly origin used when the source contains no ORG directive"></label>
         <label class="option"><input id="illegalOps" type="checkbox" checked> undocumented NMOS opcodes</label>
         <label class="option">gap fill <input id="fillByte" type="text" value="00" maxlength="2"></label>
         <button id="helpBtn">Syntax help</button>
@@ -561,7 +560,8 @@
         <div class="dialogHead"><strong>Assembler syntax</strong><button class="closeBtn" id="closeHelp">×</button></div>
         <div class="dialogBody">
             <p>This is a generic two-pass NMOS 6502 assembler. Symbols are case-insensitive. A source can be a single file or a project using <code>INCLUDE</code>.</p>
-<pre>ORG &1900
+<pre>ENTRY start
+ORG &1900
 OSWRCH = &FFEE
 
 start:
@@ -579,14 +579,13 @@ message:
     EQUS "HELLO"
     EQUB 13,10,0</pre>
             <p><b>Numbers:</b> <code>&FF</code> or <code>$FF</code> hexadecimal, <code>%1010</code> binary, decimal integers. Expressions support <code>+ - * / % &amp; | ^ &lt;&lt; &gt;&gt;</code>, parentheses, unary <code>&lt;</code> low byte and <code>&gt;</code> high byte. In prefix position <code>*</code> is the current assembly address.</p>
-            <p><b>Directives:</b> <code>ORG</code>, <code>EQUB/.BYTE/DB</code>, <code>EQUW/.WORD/DW</code>, <code>EQUD/.DWORD/DD</code>, <code>EQUS/.TEXT</code>, <code>SKIP/DS/RES</code>, <code>FILL</code>, <code>ALIGN</code>, <code>ASSERT</code>, and <code>INCLUDE "file.asm"</code>.</p>
+            <p><b>Directives:</b> <code>ENTRY</code> (mandatory on physical line 1), <code>ORG</code>, <code>EQUB/.BYTE/DB</code>, <code>EQUW/.WORD/DW</code>, <code>EQUD/.DWORD/DD</code>, <code>EQUS/.TEXT</code>, <code>SKIP/DS/RES</code>, <code>FILL</code>, <code>ALIGN</code>, <code>ASSERT</code>, and <code>INCLUDE "file.asm"</code>.</p>
             <p><b>Labels:</b> <code>name:</code> and BBC/BeebAsm-style <code>.name</code> are accepted. Constants may use <code>name = expression</code> or <code>name EQU expression</code>.</p>
             <p><b>Address-size control:</b> a literal written with four or more hex digits, e.g. <code>LDA &00F0</code>, forces absolute addressing where available. You can also write <code>LDA.ABS symbol</code> or <code>LDA.ZP symbol</code>. This matters when reproducing exact binaries.</p>
             <p><b>Undocumented NMOS opcodes:</b> common forms are supported, including <code>SLO RLA SRE RRA SAX LAX DCP ISC ANC ALR ARR AXS LAS AHX SHY SHX TAS</code>. The assembler's <code>NOP abs,X</code> form uses opcode <code>&DC</code>; exact alternative illegal encodings can always be emitted with <code>EQUB</code>. Disable undocumented opcodes using the toolbar checkbox.</p>
-            <p><b>Origin:</b> if the source contains no <code>ORG</code>, the toolbar origin is used. This makes a source file relocatable without embedding an assembly address. An explicit <code>ORG</code> in the source takes precedence. A relocatable source may optionally contain a comment such as <code>; @default-origin &amp;1900</code>; when that file is loaded the value is copied into the Origin field, but it remains user-editable and is not an assembly directive.</p>
+            <p><b>Mandatory source header:</b> physical line 1 must be <code>ENTRY &lt;label-or-fixed-address&gt;</code> and physical line 2 must be <code>ORG &lt;fixed-address&gt;</code>. No blank or comment lines may precede them. <code>ENTRY</code> may forward-reference a label defined later in the source. The first <code>ORG</code> defines where compilation begins; later <code>ORG</code> directives change the assembly address and non-contiguous emitted ranges become separate segments.</p>
             <p><b>Loader BASIC:</b> source comments of the form <code>; @basic ENVELOPE1,1,0,0,0,1,1,1,100,-10,0,-10,100,0</code> are ignored by 6502 assembly but are copied, in source/INCLUDE order, into the tokenised BBC BASIC loader made by <b>Save boot disk…</b>. One <code>@basic</code> line becomes one BASIC line and runs after the loader selects MODE 7 but before machine-code installation. Star commands such as <code>; @basic *FX200,3</code> are also accepted. These directives never alter the machine-code binary.</p>
-            <p><b>Multi-ORG boot loading:</b> when a source emits more than one segment, <b>Save boot disk…</b> automatically packs only the emitted bytes, stages that packed payload safely, then installs each segment at its own <code>ORG</code> address before entering the selected start label. Gaps are not written to BBC memory and are not stored as zero padding in the DFS program payload.</p>
-            <p><b>Advanced boot relocation:</b> <code>; @relocate sourceStart,sourceEnd,destination</code> remains available for older/special packed sources. Do not combine it with automatic multi-segment loading.</p>
+            <p><b>Multi-ORG boot loading:</b> when a source emits more than one segment, <b>Save boot disk…</b> automatically packs only the emitted bytes, stages that packed payload safely, then installs each segment at its own <code>ORG</code> address before entering the source-defined <code>ENTRY</code>. Gaps are not written to BBC memory and are not stored as zero padding in the DFS program payload.</p>
             <p><b>jsbeeb key remapping:</b> source comments such as <code>; @jsbeeb-key Z=CAPSLOCK</code> and <code>; @jsbeeb-key X=CTRL</code> are ignored by 6502 assembly but are passed to jsbeeb when <b>Run in jsbeeb</b> is used. Each line maps one host key to one BBC key and becomes a jsbeeb URL parameter such as <code>KEY.Z=CAPSLOCK</code>. These directives never alter the machine-code binary or downloaded SSD.</p>
             <p><b>Multiple ORGs:</b> emitted ranges are shown as separate segments. “Save binary” creates one flat file from the lowest to highest emitted address and fills gaps with the selected fill byte. Each individual segment can also be downloaded from the Segments tab.</p>
         </div>
@@ -594,16 +593,16 @@ message:
     <dialog id="bootDialog">
         <div class="dialogHead"><strong>Create bootable BBC DFS disk</strong><button class="closeBtn" id="closeBoot">×</button></div>
         <div class="dialogBody">
-            <p>The generated SSD contains <code>!BOOT</code> and one tokenised BBC BASIC program. For a single segment, the compiled bytes are staged at their assembly address as before. For a multi-<code>ORG</code> source, only emitted segment bytes are appended; the loader stages that packed payload at a safe temporary address, installs each segment at its declared address, then jumps to the selected entry point.</p>
+            <p>The generated SSD contains <code>!BOOT</code> and one tokenised BBC BASIC program. For a single segment, the compiled bytes are installed at their assembled address. For a multi-<code>ORG</code> source, only emitted segment bytes are appended; the loader stages that packed payload at a safe temporary address, installs each segment at its declared address, then jumps to the source-defined <code>ENTRY</code>.</p>
             <p><b>Run in jsbeeb</b> creates the same SSD in memory, sends it inline to <code>https://bbc.xania.org/</code> and requests an automatic Shift-Break, so the freshly assembled program boots immediately in the emulator. Any source-level <code>; @jsbeeb-key HOST=BBC</code> mappings are added to the same jsbeeb URL automatically.</p>
             <div class="formGrid">
                 <label for="diskTitle">Disk title</label><input id="diskTitle" type="text" maxlength="12" value="6502 PROGRAM">
                 <label for="programName">BASIC program name</label><input id="programName" type="text" maxlength="7" value="PROGRAM">
                 <div class="hint">DFS filenames are limited to seven characters. Shift-Break boots this file; it can also be run with <code>CHAIN "name"</code>.</div>
-                <label>Run address</label><input id="bootOrigin" type="text" readonly>
-                <div class="hint">Taken from the lowest assembled address. Reassemble at a different toolbar origin to change it.</div>
-                <label for="entryPoint">Entry point</label><input id="entryPoint" type="text" value="start" placeholder="symbol or address">
-                <div class="hint">May be a source symbol or a hexadecimal/decimal address.</div>
+                <label>Entry point</label><input id="bootEntry" type="text" readonly>
+                <div class="hint">Defined by physical line 1 of the source: <code>ENTRY &lt;label-or-fixed-address&gt;</code>.</div>
+                <label>Segments</label><input id="bootSegments" type="text" readonly>
+                <div class="hint">Derived from emitted ranges created by the mandatory line-2 <code>ORG</code> and any later <code>ORG</code> directives.</div>
                 <label>Source BASIC setup</label><input id="bootBasicCount" type="text" readonly value="0 @basic lines">
                 <div class="hint">Executable setup statements taken from <code>; @basic ...</code> comments in the assembled source and its INCLUDE files. They run before machine-code segment installation.</div>
                 <label>jsbeeb key mappings</label><input id="bootJsBeebKeyCount" type="text" readonly value="0 mappings">
@@ -862,9 +861,9 @@ message:
 
             class Assembler6502 {
                 constructor(options = {}) {
-                    this.options = Object.assign({ allowUndocumented: true, fillByte: 0x00, defaultOrigin: 0x0000 }, options);
+                    this.options = Object.assign({ allowUndocumented: true, fillByte: 0x00 }, options);
                     this.symbols = new Map(); this.symbolNames = new Map(); this.errors = []; this.warnings = [];
-                    this.expanded = []; this.records = []; this.pendingAssignments = [];
+                    this.expanded = []; this.records = []; this.pendingAssignments = []; this.mainName = ''; this.entryExpression = ''; this.entryInfo = null; this.entryPoint = null;
                 }
 
                 error(lineInfo, message, phase = 'assembly') {
@@ -911,6 +910,36 @@ message:
                     };
                     const mainText = getFile(mainName);
                     if (mainText === undefined) throw new Error(`Main source '${mainName}' not found`);
+
+                    // The source format deliberately makes the execution and assembly
+                    // addresses obvious at a glance. These are physical lines 1 and 2:
+                    //     ENTRY <symbol-or-address>
+                    //     ORG   <address>
+                    // Blank/comment header lines are intentionally not permitted.
+                    const mainLines = String(mainText).replace(/\r\n?/g, '\n').split('\n');
+                    const line1 = mainLines[0] ?? '';
+                    const line2 = mainLines[1] ?? '';
+                    const entryMatch = stripComment(line1).trim().match(/^ENTRY\s+(.+)$/i);
+                    const orgMatch = stripComment(line2).trim().match(/^ORG\s+(.+)$/i);
+
+                    const entrySpec = entryMatch ? String(entryMatch[1] || '').trim() : '';
+                    const entryIsLabel = /^[A-Za-z_.$@][A-Za-z0-9_.$@]*$/.test(entrySpec);
+                    const entryIsAddress = /^(?:&[0-9A-Fa-f]+|\$[0-9A-Fa-f]+|\d+)$/.test(entrySpec);
+                    if (!entryMatch || !entrySpec || (!entryIsLabel && !entryIsAddress)) {
+                        this.error({ file: mainName, line: 1, text: line1 }, 'Physical line 1 must be ENTRY <label> or ENTRY <fixed-address>.', 'preprocess');
+                    } else {
+                        this.entryExpression = entrySpec;
+                        this.entryInfo = { file: mainName, line: 1, text: line1 };
+                    }
+
+                    const orgSpec = orgMatch ? String(orgMatch[1] || '').trim() : '';
+                    const orgIsAddress = /^(?:&[0-9A-Fa-f]+|\$[0-9A-Fa-f]+|\d+)$/.test(orgSpec);
+                    if (!orgMatch || !orgSpec || !orgIsAddress) {
+                        this.error({ file: mainName, line: 2, text: line2 }, 'Physical line 2 must be ORG <fixed-address>.', 'preprocess');
+                    }
+
+                    if (this.errors.length) { this.expanded = []; return []; }
+
                     visit(mainName, mainText); this.expanded = out; return out;
                 }
 
@@ -963,13 +992,22 @@ message:
                 }
 
                 firstPass() {
-                    let pc = this.options.defaultOrigin & 0xFFFF, haveOrg = false; this.records = []; this.pendingAssignments = [];
+                    let pc = 0; this.records = []; this.pendingAssignments = [];
                     for (const info of this.expanded) {
                         const parsed = this.parseLabelAndCode(info.text); let code = parsed.code;
                         if (parsed.label) this.setSymbol(parsed.label, pc, info, 'label');
                         if (!code) { this.records.push({ kind: 'empty', pc, info }); continue; }
 
-                        let m = code.match(/^([A-Za-z_.$@][A-Za-z0-9_.$@]*)\s*=\s*(.+)$/);
+                        let m = code.match(/^ENTRY\s+(.+)$/i);
+                        if (m) {
+                            if (info.file !== this.mainName || info.line !== 1) {
+                                this.error(info, 'ENTRY is only permitted on physical line 1 of the main source file.', 'pass1');
+                            }
+                            this.records.push({ kind: 'entry', pc, arg: m[1].trim(), info });
+                            continue;
+                        }
+
+                        m = code.match(/^([A-Za-z_.$@][A-Za-z0-9_.$@]*)\s*=\s*(.+)$/);
                         if (m) {
                             try { const v = this.evalExpr(m[2], pc, true); if (v === null) this.pendingAssignments.push({ name: m[1], expr: m[2], pc, info }); else this.setSymbol(m[1], v, info, 'constant'); }
                             catch (e) { this.error(info, e.message, 'pass1'); }
@@ -990,7 +1028,7 @@ message:
 
                         m = code.match(/^\.?ORG\s+(.+)$/i);
                         if (m) {
-                            try { const v = this.evalExpr(m[1], pc, false); if (v < 0 || v > 0xFFFF) throw new Error('ORG outside 16-bit address space'); pc = v; haveOrg = true; this.records.push({ kind: 'org', pc, org: v, info }); }
+                            try { const v = this.evalExpr(m[1], pc, false); if (v < 0 || v > 0xFFFF) throw new Error('ORG outside 16-bit address space'); pc = v; this.records.push({ kind: 'org', pc, org: v, info }); }
                             catch (e) { this.error(info, e.message, 'pass1'); }
                             continue;
                         }
@@ -1049,11 +1087,22 @@ message:
                         this.pendingAssignments = next;
                     }
                     for (const a of this.pendingAssignments) this.error(a.info, `Could not resolve assignment ${a.name} = ${a.expr}`, 'pass1');
-                    if (!haveOrg) this.warn(null, `No ORG directive found; using toolbar/default origin &${(this.options.defaultOrigin & 0xFFFF).toString(16).padStart(4, '0').toUpperCase()}.`);
+
+                    if (!this.errors.length) {
+                        try {
+                            const entryPoint = this.evalExpr(this.entryExpression, 0, false);
+                            if (!Number.isFinite(entryPoint) || entryPoint < 0 || entryPoint > 0xFFFF) {
+                                throw new Error('ENTRY is outside the 16-bit address space');
+                            }
+                            this.entryPoint = entryPoint & 0xFFFF;
+                        } catch (e) {
+                            this.error(this.entryInfo, `Could not resolve ENTRY ${this.entryExpression}: ${e.message}`, 'pass1');
+                        }
+                    }
                 }
 
                 assemble(mainName, files) {
-                    this.symbols = new Map(); this.symbolNames = new Map(); this.errors = []; this.warnings = []; this.records = []; this.pendingAssignments = [];
+                    this.symbols = new Map(); this.symbolNames = new Map(); this.errors = []; this.warnings = []; this.records = []; this.pendingAssignments = []; this.mainName = mainName; this.entryExpression = ''; this.entryInfo = null; this.entryPoint = null;
                     try { this.expandSource(mainName, files); } catch (e) { this.error({ file: mainName, line: 0, text: '' }, e.message, 'preprocess'); }
                     if (!this.errors.length) this.firstPass();
                     if (this.errors.length) return this.result(false);
@@ -1107,7 +1156,7 @@ message:
 
                 result(success, mem = null, used = null, listing = []) {
                     const syms = {}; for (const [k, v] of this.symbols) syms[this.symbolNames.get(k) || k] = v;
-                    if (!success || !mem || !used) return { success: false, errors: this.errors, warnings: this.warnings, symbols: syms, segments: [], binary: new Uint8Array(0), origin: null, end: null, listing: [], listingText: '', symbolText: this.symbolText(syms), emittedBytes: 0, addressSpan: 0 };
+                    if (!success || !mem || !used) return { success: false, errors: this.errors, warnings: this.warnings, symbols: syms, segments: [], binary: new Uint8Array(0), origin: null, end: null, entryPoint: this.entryPoint, entryExpression: this.entryExpression, listing: [], listingText: '', symbolText: this.symbolText(syms), emittedBytes: 0, addressSpan: 0 };
                     const segments = []; let i = 0, emitted = 0;
                     while (i < 65536) {
                         while (i < 65536 && !used[i]) i++; if (i >= 65536) break; const start = i; const arr = [];
@@ -1118,7 +1167,7 @@ message:
                     let binary = new Uint8Array(0);
                     if (origin !== null) { binary = new Uint8Array(end - origin + 1); binary.fill(this.options.fillByte & 255); for (const seg of segments) binary.set(seg.bytes, seg.start - origin); }
                     const listingText = listing.map(x => `${x.address.toString(16).padStart(4, '0').toUpperCase()}  ${Array.from(x.bytes).map(b => b.toString(16).padStart(2, '0').toUpperCase()).join(' ').padEnd(23)} ${x.file}:${x.line}  ${x.source}`).join('\n') + '\n';
-                    return { success, errors: this.errors, warnings: this.warnings, symbols: syms, segments, binary, origin, end, listing, listingText, symbolText: this.symbolText(syms), emittedBytes: emitted, addressSpan: origin === null ? 0 : end - origin + 1 };
+                    return { success, errors: this.errors, warnings: this.warnings, symbols: syms, segments, binary, origin, end, entryPoint: this.entryPoint, entryExpression: this.entryExpression, listing, listingText, symbolText: this.symbolText(syms), emittedBytes: emitted, addressSpan: origin === null ? 0 : end - origin + 1 };
                 }
 
                 symbolText(symbols) {
@@ -1131,7 +1180,7 @@ message:
                 OPCODES,
                 MODES,
                 UNDOCUMENTED,
-                version: '1.9.1'
+                version: '2.0.0'
             };
 
             if (typeof module !== 'undefined' && module.exports) {
@@ -1188,26 +1237,28 @@ message:
                 branch: 'main'
             });
 
-            const sample = `; BBC 6502 Web Assembler
+            const sample = `ENTRY start
+ORG &1900
+
+; BBC 6502 Web Assembler
 ; Generic NMOS 6502 example
 
 OSWRCH = &FFEE
-ORG &1900
 
 start:
-            LDX #0
+                LDX #0
 .loop:
-            LDA message,X
-            BEQ done
-            JSR OSWRCH
-            INX
-            BNE .loop
+                LDA message,X
+                BEQ done
+                JSR OSWRCH
+                INX
+                BNE .loop
 .done:
-            RTS
+                RTS
 
 message:
-            EQUS "HELLO FROM 6502!"
-            EQUB 13,10,0
+                EQUS "HELLO FROM 6502!"
+                EQUB 13,10,0
 `;
 
             function setDirty(value) {
@@ -1234,76 +1285,6 @@ message:
                 return '&' + (value >>> 0).toString(16).toUpperCase().padStart(4, '0');
             }
 
-
-            function parseNumericAddress(text) {
-                const value = String(text || '').trim();
-
-                if (!value) {
-                    throw new Error('Address is empty.');
-                }
-
-                let number;
-
-                if (/^&[0-9a-f]+$/i.test(value)) {
-                    number = parseInt(value.slice(1), 16);
-                } else if (/^\$[0-9a-f]+$/i.test(value)) {
-                    number = parseInt(value.slice(1), 16);
-                } else if (/^[0-9a-f]{3,4}$/i.test(value)) {
-                    // Address fields are normally entered as bare hexadecimal (e.g. 1900).
-                    number = parseInt(value, 16);
-                } else if (/^\d+$/.test(value)) {
-                    number = parseInt(value, 10);
-                } else {
-                    throw new Error(`Bad address '${value}'.`);
-                }
-
-                if (!Number.isFinite(number) || number < 0 || number > 0xFFFF) {
-                    throw new Error(`Address '${value}' is outside the 16-bit address space.`);
-                }
-
-                return number & 0xFFFF;
-            }
-
-
-            // -------------------------------------------------------------------------
-            // Optional source metadata
-            // -------------------------------------------------------------------------
-            //
-            // A relocatable source may advertise a convenient default assembly origin
-            // without embedding an ORG directive:
-            //
-            //     ; @default-origin &1900
-            //
-            // This is deliberately only a comment. It changes the toolbar's suggested
-            // Origin when the source is loaded/selected, but it does not participate in
-            // assembly. The user remains free to change the Origin field before building.
-            function sourceDefaultOrigin(text) {
-                const match = String(text || '').match(
-                    /^\s*;\s*@default-origin\s+(\&[0-9a-f]+|\$[0-9a-f]+|[0-9a-f]{3,4})\s*(?:;.*)?$/im
-                );
-
-                if (!match) {
-                    return null;
-                }
-
-                try {
-                    return parseNumericAddress(match[1]);
-                } catch (error) {
-                    console.warn('Ignoring invalid @default-origin metadata:', error.message);
-                    return null;
-                }
-            }
-
-            function applySourceMetadata(text) {
-                const defaultOrigin = sourceDefaultOrigin(text);
-
-                if (defaultOrigin !== null) {
-                    byId('originAddress').value = defaultOrigin
-                        .toString(16)
-                        .toUpperCase()
-                        .padStart(4, '0');
-                }
-            }
 
             // Loader-only BBC BASIC statements can be kept alongside assembly source as
             // comments. They do not emit 6502 bytes and therefore never affect the
@@ -1339,67 +1320,6 @@ message:
                 }
 
                 return statements;
-            }
-
-            // Boot-loader scatter relocation metadata. Each directive describes an
-            // exclusive source range in the staged compiled image and its final runtime
-            // destination:
-            //
-            //     ; @relocate SourceStart,SourceEnd,&0D00
-            //
-            // Expressions are evaluated with the assembler symbol table after assembly.
-            // Directives are processed in source/INCLUDE order because overlapping
-            // destinations may deliberately rely on that order.
-            function collectBootRelocations(expandedLines, assembler, result) {
-                const relocations = [];
-
-                for (const info of expandedLines || []) {
-                    const match = String(info.text || '').match(/^\s*;\s*@relocate(?:\s+(.*))?$/i);
-                    if (!match) continue;
-
-                    const spec = String(match[1] || '').trim();
-                    const parts = spec.split(',').map((part) => part.trim());
-                    if (parts.length !== 3 || parts.some((part) => !part)) {
-                        throw new Error(`${info.file}:${info.line}: @relocate requires sourceStart,sourceEnd,destination.`);
-                    }
-
-                    let sourceStart, sourceEnd, destination;
-                    try {
-                        sourceStart = assembler.evalExpr(parts[0], 0, false);
-                        sourceEnd = assembler.evalExpr(parts[1], 0, false);
-                        destination = assembler.evalExpr(parts[2], 0, false);
-                    } catch (error) {
-                        throw new Error(`${info.file}:${info.line}: bad @relocate expression: ${error.message}`);
-                    }
-
-                    if (![sourceStart, sourceEnd, destination].every(Number.isFinite)) {
-                        throw new Error(`${info.file}:${info.line}: @relocate expressions must resolve to numeric addresses.`);
-                    }
-
-                    sourceStart &= 0xFFFF;
-                    sourceEnd &= 0xFFFF;
-                    destination &= 0xFFFF;
-
-                    if (sourceEnd <= sourceStart) {
-                        throw new Error(`${info.file}:${info.line}: @relocate sourceEnd must be greater than sourceStart.`);
-                    }
-                    if (sourceStart < result.origin || sourceEnd - 1 > result.end) {
-                        throw new Error(
-                            `${info.file}:${info.line}: @relocate source ${hex4(sourceStart)}-${hex4(sourceEnd - 1)} ` +
-                            `is outside the compiled image ${hex4(result.origin)}-${hex4(result.end)}.`
-                        );
-                    }
-
-                    const length = sourceEnd - sourceStart;
-                    const destinationEnd = destination + length - 1;
-                    if (destinationEnd > 0xFFFF) {
-                        throw new Error(`${info.file}:${info.line}: @relocate destination range exceeds &FFFF.`);
-                    }
-
-                    relocations.push({ sourceStart, sourceEnd, destination, length, file: info.file, line: info.line });
-                }
-
-                return relocations;
             }
 
             // jsbeeb-only keyboard remapping can also travel with the source as comments:
@@ -1450,24 +1370,6 @@ message:
                 return mappings;
             }
 
-            function resolveEntryPoint(text, result) {
-                const value = String(text || '').trim();
-
-                if (!value) {
-                    return result.origin;
-                }
-
-                const match = Object.entries(result.symbols).find(
-                    ([name]) => name.toLowerCase() === value.toLowerCase()
-                );
-
-                if (match) {
-                    return match[1] & 0xFFFF;
-                }
-
-                return parseNumericAddress(value);
-            }
-
             function escapeHtml(value) {
                 return String(value).replace(/[&<>"']/g, (character) => ({
                     '&': '&amp;',
@@ -1501,7 +1403,6 @@ message:
                 currentFile = name;
                 editor.value = files.get(name) || '';
                 updateLineNumbers();
-                applySourceMetadata(editor.value);
                 refreshFileSelect();
                 setDirty(false);
                 updateCursor();
@@ -1543,7 +1444,6 @@ message:
                 currentFile = sourceFile || [...files.keys()][0];
                 editor.value = files.get(currentFile);
                 updateLineNumbers();
-                applySourceMetadata(editor.value);
 
                 refreshFileSelect();
                 setDirty(false);
@@ -1635,7 +1535,6 @@ message:
                     currentFile = requested || preferredMain || names[0];
                     editor.value = files.get(currentFile) || '';
                     updateLineNumbers();
-                    applySourceMetadata(editor.value);
                     refreshFileSelect();
                     setDirty(false);
                     lastResult = null;
@@ -1737,25 +1636,9 @@ message:
                 const fill = parseInt(fillText, 16);
                 const fillByte = Number.isFinite(fill) ? fill & 0xFF : 0;
 
-                let defaultOrigin;
-
-                try {
-                    defaultOrigin = parseNumericAddress(byId('originAddress').value);
-                } catch (error) {
-                    lastResult = {
-                        success: false,
-                        errors: [{ phase: 'options', message: error.message, file: currentFile, line: 0, text: '' }],
-                        warnings: [], symbols: {}, segments: [], binary: new Uint8Array(0), origin: null, end: null,
-                        listingText: '', symbolText: '', emittedBytes: 0, addressSpan: 0, elapsedMs: 0
-                    };
-                    renderResult(lastResult);
-                    return;
-                }
-
                 const assembler = new Assembler6502({
                     allowUndocumented: byId('illegalOps').checked,
-                    fillByte,
-                    defaultOrigin
+                    fillByte
                 });
 
                 const startTime = performance.now();
@@ -1768,15 +1651,6 @@ message:
                     } catch (error) {
                         lastResult.basicStatements = [];
                         lastResult.basicMetadataError = error.message;
-                    }
-                }
-
-                if (lastResult.success) {
-                    try {
-                        lastResult.relocations = collectBootRelocations(assembler.expanded, assembler, lastResult);
-                    } catch (error) {
-                        lastResult.relocations = [];
-                        lastResult.relocationMetadataError = error.message;
                     }
                 }
 
@@ -1851,41 +1725,42 @@ message:
 
                 if (result.success) {
                     html += `
-                <div class="summary">
-                  <div class="key">Status</div><div class="good">BUILD OK</div>
-                  <div class="key">Origin</div><div>${hex4(result.origin)}</div>
-                  <div class="key">End</div><div>${hex4(result.end)}</div>
-                  <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
-                  <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
-                  <div class="key">Segments</div><div>${result.segments.length}</div>
-                  <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
-                  <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
-                  <div class="key">Boot loading</div><div>${(result.relocations || []).length ? `${result.relocations.length} @relocate range${result.relocations.length === 1 ? '' : 's'}` : (result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment')}</div>
-                  <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
-                  <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
-                  ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
-                </div>`;
+                    <div class="summary">
+                      <div class="key">Status</div><div class="good">BUILD OK</div>
+                      <div class="key">ENTRY</div><div>${escapeHtml(result.entryExpression)} = ${hex4(result.entryPoint)}</div>
+                      <div class="key">Lowest emitted</div><div>${hex4(result.origin)}</div>
+                      <div class="key">Highest emitted</div><div>${hex4(result.end)}</div>
+                      <div class="key">Emitted bytes</div><div>${result.emittedBytes.toLocaleString()}</div>
+                      <div class="key">Flat span</div><div>${result.addressSpan.toLocaleString()} bytes</div>
+                      <div class="key">Segments</div><div>${result.segments.length}</div>
+                      <div class="key">Symbols</div><div>${Object.keys(result.symbols).length}</div>
+                      <div class="key">Loader BASIC</div><div>${(result.basicStatements || []).length} @basic line${(result.basicStatements || []).length === 1 ? '' : 's'}</div>
+                      <div class="key">Boot loading</div><div>${result.segments.length > 1 ? `${result.segments.length} ORG segments (automatic)` : 'single segment'}</div>
+                      <div class="key">jsbeeb keys</div><div>${(result.jsbeebKeyMappings || []).length} mapping${(result.jsbeebKeyMappings || []).length === 1 ? '' : 's'}</div>
+                      <div class="key">Time</div><div>${result.elapsedMs.toFixed(1)} ms</div>
+                      ${result.sha256 ? `<div class="key">SHA-256</div><div style="overflow-wrap:anywhere">${result.sha256}</div>` : ''}
+                    </div>`;
                 } else {
                     html += `
-                <div class="summary">
-                  <div class="key">Status</div><div class="bad">BUILD FAILED</div>
-                  <div class="key">Errors</div><div>${result.errors.length}</div>
-                </div>`;
+                    <div class="summary">
+                      <div class="key">Status</div><div class="bad">BUILD FAILED</div>
+                      <div class="key">Errors</div><div>${result.errors.length}</div>
+                    </div>`;
                 }
 
                 for (const error of result.errors) {
                     html += `
-                <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
-                  <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
-                  ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
-                </div>`;
+                    <div class="message error" data-file="${escapeHtml(error.file)}" data-line="${error.line}">
+                      <b>${escapeHtml(error.phase)}:</b> ${escapeHtml(error.message)}
+                      ${escapeHtml(error.file)}:${error.line}${error.text ? '\n' + escapeHtml(error.text) : ''}
+                    </div>`;
                 }
 
                 for (const warning of result.warnings) {
                     html += `
-                <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
-                  <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
-                </div>`;
+                    <div class="message warn" data-file="${escapeHtml(warning.file)}" data-line="${warning.line}">
+                      <b>warning:</b> ${escapeHtml(warning.message)}${warning.file ? `\n${escapeHtml(warning.file)}:${warning.line}` : ''}
+                    </div>`;
                 }
 
                 buildContent.innerHTML = html;
@@ -1914,11 +1789,11 @@ message:
                     const segmentName = `${stem(currentFile)}_${segment.start.toString(16).padStart(4, '0')}_${segment.end.toString(16).padStart(4, '0')}.bin`;
 
                     row.innerHTML = `
-                <td>${index + 1}</td>
-                <td class="addr">${hex4(segment.start)}</td>
-                <td class="addr">${hex4(segment.end)}</td>
-                <td>${segment.bytes.length.toLocaleString()}</td>
-                <td class="segmentActions"><button>Save</button></td>`;
+                    <td>${index + 1}</td>
+                    <td class="addr">${hex4(segment.start)}</td>
+                    <td class="addr">${hex4(segment.end)}</td>
+                    <td>${segment.bytes.length.toLocaleString()}</td>
+                    <td class="segmentActions"><button>Save</button></td>`;
 
                     row.querySelector('button').onclick = () => {
                         downloadBlob(segment.bytes, segmentName);
@@ -1945,8 +1820,8 @@ message:
                         const row = document.createElement('tr');
                         row.className = 'symbolRow';
                         row.innerHTML = `
-                  <td class="addr">${hex4(value & 0xFFFF)}</td>
-                  <td>${escapeHtml(name)}</td>`;
+                      <td class="addr">${hex4(value & 0xFFFF)}</td>
+                      <td>${escapeHtml(name)}</td>`;
                         row.onclick = () => jumpToSymbol(name);
                         body.appendChild(row);
                     });
@@ -2031,10 +1906,10 @@ message:
                 ]);
             }
 
-            // Optional boot-loader scatter stage. The ordinary mover first stages the
-            // complete binary at its assembled Origin. With @relocate metadata, a small
-            // generated helper at &7900 then reuses the same overlap-safe mover once per
-            // range before jumping to the selected entry point.
+            // Multi-segment boot-loader scatter stage. The ordinary mover first stages the
+            // packed emitted bytes at a safe temporary address. A small generated helper at
+            // &7900 then reuses the same overlap-safe mover once per emitted segment before
+            // jumping to the source-defined ENTRY point.
             const SCATTER_ADDRESS = 0x7900;
             const SCATTER_ENTRY = SCATTER_ADDRESS + 1;
             const SCATTER_RETURN = SCATTER_ADDRESS;
@@ -2439,24 +2314,23 @@ message:
                     throw new Error('Assemble the source successfully before creating a disk.');
                 }
 
-                const entryPoint = options.entryPoint;
-                const explicitRelocations = options.relocations || [];
-                const automaticSegments = !explicitRelocations.length && (result.segments || []).length > 1;
+                const entryPoint = result.entryPoint;
+                const automaticSegments = (result.segments || []).length > 1;
 
-                if (explicitRelocations.length && (result.segments || []).length > 1) {
-                    throw new Error('Do not combine @relocate metadata with a multi-ORG source. Use one boot-loading model or the other.');
+                if (!Number.isFinite(entryPoint)) {
+                    throw new Error('The mandatory ENTRY directive did not resolve to an address.');
+                }
+                if (!entryIsInEmittedSegment(result.segments, entryPoint)) {
+                    throw new Error(`ENTRY ${hex4(entryPoint)} is not inside an emitted ORG segment.`);
                 }
 
-                const reservedStart = (automaticSegments || explicitRelocations.length) ? SCATTER_ADDRESS : MOVER_ADDRESS;
+                const reservedStart = automaticSegments ? SCATTER_ADDRESS : MOVER_ADDRESS;
                 let destination;
                 let payload;
                 let relocations;
                 let segmentPlan = null;
 
                 if (automaticSegments) {
-                    if (!entryIsInEmittedSegment(result.segments, entryPoint)) {
-                        throw new Error(`Entry point ${hex4(entryPoint)} is not inside an emitted ORG segment.`);
-                    }
                     segmentPlan = makeAutomaticSegmentPlan(result.segments, reservedStart);
                     destination = segmentPlan.stagingAddress;
                     payload = segmentPlan.payload;
@@ -2464,13 +2338,7 @@ message:
                 } else {
                     destination = result.origin;
                     payload = result.binary;
-                    relocations = explicitRelocations;
-                    const end = destination + payload.length - 1;
-                    if (!(entryPoint >= destination && entryPoint <= end)) {
-                        throw new Error(
-                            `Entry point ${hex4(entryPoint)} is outside the compiled image ${hex4(destination)}-${hex4(end)}.`
-                        );
-                    }
+                    relocations = [];
                 }
 
                 const end = destination + payload.length - 1;
@@ -2495,12 +2363,6 @@ message:
                         throw new Error(
                             `Boot destination ${hex4(relocation.destination)}-${hex4(relocationEnd)} overlaps loader workspace ` +
                             `${hex4(reservedStart)}-${hex4(HANDOFF_END)}.`
-                        );
-                    }
-                    if (!automaticSegments && entryPoint >= relocation.destination && entryPoint <= relocationEnd) {
-                        throw new Error(
-                            `Entry point ${hex4(entryPoint)} would be overwritten by @relocate destination ` +
-                            `${hex4(relocation.destination)}-${hex4(relocationEnd)} before it is called.`
                         );
                     }
                 }
@@ -2580,21 +2442,6 @@ message:
                 };
             }
 
-            function suggestedEntrySymbol(result) {
-                const preferred = ['GameEntry', 'start', '_start', 'entry', 'main'];
-
-                for (const wanted of preferred) {
-                    const found = Object.keys(result.symbols).find(
-                        (name) => name.toLowerCase() === wanted.toLowerCase()
-                    );
-                    if (found) {
-                        return found;
-                    }
-                }
-
-                return hex4(result.origin);
-            }
-
             function openBootDialog() {
                 if (!lastResult?.success) {
                     return;
@@ -2602,8 +2449,8 @@ message:
 
                 byId('diskTitle').value = stem(currentFile).toUpperCase().slice(0, 12) || '6502 PROGRAM';
                 byId('programName').value = stem(currentFile).replace(/[^A-Za-z0-9!_-]/g, '').toUpperCase().slice(0, 7) || 'PROGRAM';
-                byId('bootOrigin').value = hex4(lastResult.origin);
-                byId('entryPoint').value = suggestedEntrySymbol(lastResult);
+                byId('bootEntry').value = `${lastResult.entryExpression} (${hex4(lastResult.entryPoint)})`;
+                byId('bootSegments').value = (lastResult.segments || []).map((segment) => `${hex4(segment.start)}-${hex4(segment.end)}`).join(', ');
 
                 const setupStatements = lastResult.basicStatements || [];
                 byId('bootBasicCount').value =
@@ -2613,23 +2460,18 @@ message:
                 byId('bootJsBeebKeyCount').value =
                     `${keyMappings.length} mapping${keyMappings.length === 1 ? '' : 's'}`;
 
-                if (lastResult.basicMetadataError || lastResult.relocationMetadataError) {
-                    byId('bootWarning').textContent =
-                        lastResult.basicMetadataError || lastResult.relocationMetadataError;
+                if (lastResult.basicMetadataError) {
+                    byId('bootWarning').textContent = lastResult.basicMetadataError;
                 } else if (lastResult.jsbeebKeyMetadataError) {
                     byId('bootWarning').textContent =
                         lastResult.jsbeebKeyMetadataError + ' The SSD can still be created, but Run in jsbeeb will not start until the mapping is corrected.';
                 } else {
-                    const relocationCount = (lastResult.relocations || []).length;
-                    const automaticSegmentCount = !relocationCount && (lastResult.segments || []).length > 1 ? lastResult.segments.length : 0;
-                    const reservedStart = (relocationCount || automaticSegmentCount) ? SCATTER_ADDRESS : MOVER_ADDRESS;
+                    const automaticSegmentCount = (lastResult.segments || []).length > 1 ? lastResult.segments.length : 0;
+                    const reservedStart = automaticSegmentCount ? SCATTER_ADDRESS : MOVER_ADDRESS;
                     byId('bootWarning').textContent = automaticSegmentCount
                         ? `${automaticSegmentCount} emitted ORG segments will be packed and installed automatically; gaps are not written. ` +
                         `Loader workspace: ${hex4(reservedStart)}-${hex4(HANDOFF_END)}.`
-                        : relocationCount
-                            ? `${relocationCount} @relocate range${relocationCount === 1 ? '' : 's'} will be installed by the boot loader. ` +
-                            `Loader workspace: ${hex4(reservedStart)}-${hex4(HANDOFF_END)}.`
-                            : `The temporary mover/handoff occupies ${hex4(MOVER_ADDRESS)}-${hex4(HANDOFF_END)}. The compiled destination must not overlap it.`;
+                        : `The temporary mover/handoff occupies ${hex4(MOVER_ADDRESS)}-${hex4(HANDOFF_END)}. The compiled destination must not overlap it.`;
                 }
 
                 byId('bootDialog').showModal();
@@ -2646,17 +2488,10 @@ message:
                 if (lastResult.basicMetadataError) {
                     throw new Error(lastResult.basicMetadataError);
                 }
-                if (lastResult.relocationMetadataError) {
-                    throw new Error(lastResult.relocationMetadataError);
-                }
-
-                const entryPoint = resolveEntryPoint(byId('entryPoint').value, lastResult);
                 return buildDfsSsd(lastResult, {
                     diskTitle,
                     programName,
-                    entryPoint,
-                    basicStatements: lastResult.basicStatements || [],
-                    relocations: lastResult.relocations || []
+                    basicStatements: lastResult.basicStatements || []
                 });
             }
 
@@ -2866,8 +2701,8 @@ message:
                     // the configuration dialog, then use the normal SSD builder.
                     byId('diskTitle').value = stem(currentFile).toUpperCase().slice(0, 12) || '6502 PROGRAM';
                     byId('programName').value = stem(currentFile).replace(/[^A-Za-z0-9!_-]/g, '').toUpperCase().slice(0, 7) || 'PROGRAM';
-                    byId('bootOrigin').value = hex4(lastResult.origin);
-                    byId('entryPoint').value = suggestedEntrySymbol(lastResult);
+                    byId('bootEntry').value = `${lastResult.entryExpression} (${hex4(lastResult.entryPoint)})`;
+                    byId('bootSegments').value = (lastResult.segments || []).map((segment) => `${hex4(segment.start)}-${hex4(segment.end)}`).join(', ');
 
                     const setupStatements = lastResult.basicStatements || [];
                     byId('bootBasicCount').value =
@@ -3263,7 +3098,6 @@ message:
             // They are part of the single HTML file and do not require any external code.
             window.BBC6502BootTools = Object.freeze({
                 collectLoaderBasicStatements,
-                collectBootRelocations,
                 collectJsBeebKeyMappings,
                 tokeniseBasicLoaderStatement,
                 makeScatterBytes,
