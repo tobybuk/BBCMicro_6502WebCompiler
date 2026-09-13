@@ -1,3 +1,6 @@
+ENTRY GameEntry
+ORG &0E00
+RUNTIME_BASE=*
 ; =============================================================================
 ; Acornsoft CHESS V2 (1983) - direct-runtime recovered source
 ; Authors: Arthur Norman and Nick Pelling (credited by the original CHESS2 program)
@@ -153,9 +156,6 @@ HistoryBasePieceSquares   = &073A
 HistoryBasePieceTypes     = &075B
 ResumePieceSquares        = &07BE
 ResumePieceTypes          = &07DF
-
-RUNTIME_BASE              = &0E00
-
 
 ; -----------------------------------------------------------------------------
 ; Recovered chess constants

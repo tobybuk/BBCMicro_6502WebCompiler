@@ -1,3 +1,5 @@
+ENTRY bootstrap_entry
+ORG &0400
 ; ============================================================================
 ; ZALAGA - WEB-ASSEMBLER BOOTABLE RECONSTRUCTION V14
 ; BBC Micro / NMOS 6502
@@ -451,7 +453,6 @@ message_data_start             = &2EE2
 ; as startup code and is subsequently reused by the object arrays.
 ; ============================================================================
 
-ORG &0400
 runtime_start:
     EQUB &A9, &16, &20, &EE, &FF, &A9, &02, &20, &EE, &FF, &A9, &0A, &8D, &00, &FE, &A9    ; &0400
     EQUB &20, &8D, &01, &FE, &A2, &00, &20, &97, &0E, &CA, &D0, &FA, &20, &CD, &04, &A9    ; &0410

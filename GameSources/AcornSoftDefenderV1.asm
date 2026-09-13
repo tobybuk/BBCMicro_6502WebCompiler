@@ -1,3 +1,5 @@
+ENTRY GameEntry
+ORG &0E00
 ; =============================================================================
 ; DEFENDER V1 / early PLANETOID - FINAL annotated reconstruction
 ; =============================================================================
@@ -226,7 +228,6 @@ OldIRQ1VHi        = &8D
 
 RelocatedVideoStub = &0400       ; runtime destination of 46-byte stub copied from &305A
 
-ORG &0E00
 Defend2PrefixData:
     EQUB &0D,&FF                  ; &0E00-&0E01 retained prefix bytes
 GameEntry:

@@ -1180,7 +1180,7 @@ message:
                 OPCODES,
                 MODES,
                 UNDOCUMENTED,
-                version: '2.0.0'
+                version: '2.0.1'
             };
 
             if (typeof module !== 'undefined' && module.exports) {
@@ -1438,7 +1438,7 @@ message:
                 files = loadedFiles;
 
                 const sourceFile = [...files.keys()].find((name) =>
-                    /\.(asm|s|inc|6502|txt)$/i.test(name)
+                    /\.(asm|6502)$/i.test(name)
                 );
 
                 currentFile = sourceFile || [...files.keys()][0];

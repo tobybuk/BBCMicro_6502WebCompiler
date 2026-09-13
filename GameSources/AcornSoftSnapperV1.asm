@@ -1,3 +1,6 @@
+ENTRY start
+ORG &0E00
+RUNTIME_BASE=*       
 ; Acornsoft Snapper V1 - documented reverse-engineering snapshot
 ; Original game by Jonathan Griffiths / Acornsoft, 1982
 ;
@@ -106,7 +109,6 @@ USERVIA_IER                    = &FE6E
 ; -----------------------------------------------------------------------------
 ; Game constants
 ; -----------------------------------------------------------------------------
-RUNTIME_BASE                   = &0E00       ; relocated game base
 BASIC_CALL_ENTRY               = &3283       ; BASIC CALL entry (main_entry label is emitted at this address)
 PLAYER_INDEX                   = &04       ; object-array index for Snapper
 GHOST_COUNT                    = &04       ; number of ghosts
@@ -5159,3 +5161,4 @@ score_fixed_trailing_zero_screen_cell:
 ; ghost-score ladder and 1000-point initial Top-Eight seed, maps the sound/envelope call sites,
 ; adds exact AI pseudocode/probe geometry, a renderer-true sprite atlas, and stronger legacy-layout evidence.
 ; Raw/unreferenced regions remain byte-exact rather than being promoted to code without reachability proof.
+s

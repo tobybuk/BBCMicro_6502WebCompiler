@@ -1,3 +1,5 @@
+ENTRY start
+ORG &01A4
 ; =============================================================================
 ; Frak! (BBC Micro, Aardvark Software, 1984)
 ; Stage 10 documented semantic reconstruction - exact multi-ORG baseline

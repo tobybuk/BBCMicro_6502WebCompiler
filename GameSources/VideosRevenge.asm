@@ -1,8 +1,10 @@
+ENTRY GameEntry
+ORG &09C0
+; Video's Revenge (BBC Micro, 1985) - reconstructed source
 ; Video's Revenge (BBC Micro, 1985) - reconstructed source
 ;
 ; RELOCATABLE SOURCE
 ; ------------------
-; @default-origin &09C0
 ;
 ; BBC BASIC loader setup
 ; ----------------------
